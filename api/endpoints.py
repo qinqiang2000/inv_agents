@@ -4,8 +4,10 @@ import logging
 import json
 from fastapi import APIRouter, HTTPException, Request
 from sse_starlette.sse import EventSourceResponse
+from claude_agent_sdk import ClaudeSDKClient, ClaudeAgentOptions
 from .models import QueryRequest
 from . import agent_service
+from .session_manager import get_session_manager
 
 logger = logging.getLogger(__name__)
 
@@ -83,3 +85,63 @@ async def query_agent(request: QueryRequest, http_request: Request):
 async def health_check():
     """Health check endpoint."""
     return {"status": "healthy", "service": "invoice-field-recommender-agent"}
+
+
+@router.post("/interrupt")
+async def interrupt_agent(request: Request):
+    """
+    Interrupt a running Claude SDK session.
+
+    Args:
+        request: HTTP request containing session_id in JSON body
+
+    Request body:
+        ```json
+        {
+            "session_id": "session-uuid"
+        }
+        ```
+
+    Returns:
+        JSON response indicating success/failure
+
+    Example:
+        ```
+        POST /api/interrupt
+        {"session_id": "abc-123"}
+
+        Response:
+        {"success": true, "message": "Interrupt request processed", "session_id": "abc-123"}
+        ```
+    """
+    try:
+        body = await request.json()
+        session_id = body.get("session_id")
+
+        if not session_id:
+            raise HTTPException(status_code=400, detail="Missing session_id")
+
+        logger.info(f"Received interrupt request for session: {session_id}")
+
+        # Get the active client from session manager
+        session_manager = get_session_manager()
+        success = await session_manager.interrupt(session_id)
+
+        if success:
+            logger.info(f"Successfully interrupted session {session_id}")
+        else:
+            logger.warning(f"Session {session_id} not found or already ended")
+
+        # Always return success (silent ignore errors per requirement)
+        return {
+            "success": True,
+            "message": "Interrupt request processed",
+            "session_id": session_id
+        }
+
+    except HTTPException:
+        # Re-raise HTTP exceptions
+        raise
+    except Exception as e:
+        logger.error(f"Error in interrupt_agent: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))

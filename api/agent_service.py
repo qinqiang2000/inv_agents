@@ -1,5 +1,6 @@
 """Claude SDK integration service for agent queries."""
 
+import asyncio
 import json
 import logging
 from typing import AsyncGenerator, Optional
@@ -8,11 +9,13 @@ from claude_agent_sdk import (
     ClaudeAgentOptions,
     UserMessage,
     AssistantMessage,
+    SystemMessage,
     ResultMessage,
     TextBlock,
     ToolUseBlock
 )
 from .models import QueryRequest
+from .session_manager import get_session_manager
 
 logger = logging.getLogger(__name__)
 
@@ -130,45 +133,86 @@ async def stream_response(request: QueryRequest) -> AsyncGenerator[str, None]:
         async with ClaudeSDKClient(options=options) as client:
             await client.query(prompt)
 
-            async for msg in client.receive_response():
-                # Process different message types
-                if isinstance(msg, AssistantMessage):
-                    for block in msg.content:
-                        if isinstance(block, TextBlock):
-                            # 完整记录 Agent 消息（INFO级别）
-                            logger.info(f"[Agent] {block.text}")
-                            yield format_sse_message("assistant_message", block.text)
-                        elif isinstance(block, ToolUseBlock):
-                            # 完整记录工具调用（INFO级别）
-                            logger.info(f"[Tool] {block.name} - Input: {block.input}")
+            # Track session_id for new sessions
+            session_id_sent = False
+            actual_session_id = request.session_id  # Start with existing session_id if resuming
+            session_manager = get_session_manager()
 
-                            # Check for TodoWrite and emit todos
-                            if block.name == "TodoWrite":
-                                todos = extract_todos_from_tool(block)
-                                if todos:
-                                    logger.info(f"[TodoWrite] Emitting {len(todos)} todos")
-                                    yield format_sse_message("todos_update", {"todos": todos})
+            # For resumed sessions, register immediately
+            if request.session_id:
+                await session_manager.register(request.session_id, client)
+                logger.info(f"Registered resumed session: {request.session_id}")
 
-                elif isinstance(msg, ResultMessage):
-                    # Extract and send session_id for new sessions
-                    if not request.session_id:
-                        yield format_sse_message("session_created", {
-                            "session_id": msg.session_id
+            try:
+                async for msg in client.receive_response():
+                    # Catch system init message with session_id (first message)
+                    if isinstance(msg, SystemMessage):
+                        if msg.subtype == 'init' and not request.session_id and not session_id_sent:
+                            # Extract session_id from data
+                            if isinstance(msg.data, dict) and 'session_id' in msg.data:
+                                actual_session_id = msg.data['session_id']
+                                # Register client in session manager for interrupt support
+                                await session_manager.register(actual_session_id, client)
+                                yield format_sse_message("session_created", {
+                                    "session_id": actual_session_id
+                                })
+                                session_id_sent = True
+                                logger.info(f"Created new session: {actual_session_id}")
+
+                    # Also track session_id from ResultMessage (as fallback)
+                    if isinstance(msg, ResultMessage):
+                        actual_session_id = msg.session_id
+                        if not request.session_id and not session_id_sent:
+                            yield format_sse_message("session_created", {
+                                "session_id": msg.session_id
+                            })
+                            session_id_sent = True
+                            logger.info(f"Created new session (from result): {msg.session_id}")
+
+                    # Process different message types
+                    if isinstance(msg, AssistantMessage):
+                        for block in msg.content:
+                            if isinstance(block, TextBlock):
+                                # 完整记录 Agent 消息（INFO级别）
+                                logger.info(f"[Agent] {block.text}")
+                                yield format_sse_message("assistant_message", block.text)
+                            elif isinstance(block, ToolUseBlock):
+                                # 完整记录工具调用（INFO级别）
+                                logger.info(f"[Tool] {block.name} - Input: {block.input}")
+
+                                # Check for TodoWrite and emit todos
+                                if block.name == "TodoWrite":
+                                    todos = extract_todos_from_tool(block)
+                                    if todos:
+                                        logger.info(f"[TodoWrite] Emitting {len(todos)} todos")
+                                        yield format_sse_message("todos_update", {"todos": todos})
+
+                    elif isinstance(msg, ResultMessage):
+                        # Send final result with metadata
+                        yield format_sse_message("result", {
+                            "session_id": msg.session_id,
+                            "duration_ms": msg.duration_ms,
+                            "is_error": msg.is_error,
+                            "num_turns": msg.num_turns
                         })
-                        logger.info(f"Created new session: {msg.session_id}")
 
-                    # Send final result with metadata
-                    yield format_sse_message("result", {
-                        "session_id": msg.session_id,
-                        "duration_ms": msg.duration_ms,
-                        "is_error": msg.is_error,
-                        "num_turns": msg.num_turns
-                    })
+                        logger.info(
+                            f"Session {msg.session_id} completed: "
+                            f"duration={msg.duration_ms}ms, turns={msg.num_turns}, error={msg.is_error}"
+                        )
 
-                    logger.info(
-                        f"Session {msg.session_id} completed: "
-                        f"duration={msg.duration_ms}ms, turns={msg.num_turns}, error={msg.is_error}"
-                    )
+            except asyncio.CancelledError:
+                # Session was interrupted by user
+                session_id = request.session_id or actual_session_id or "unknown"
+                logger.info(f"Session {session_id} interrupted by user")
+                yield format_sse_message("interrupted", {
+                    "message": "Agent execution interrupted",
+                    "session_id": session_id
+                })
+            finally:
+                # Unregister session when done
+                if actual_session_id:
+                    await session_manager.unregister(actual_session_id)
 
     except Exception as e:
         logger.error(f"Error in stream_response: {str(e)}", exc_info=True)

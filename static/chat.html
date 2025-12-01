@@ -216,6 +216,37 @@
             cursor: not-allowed;
         }
 
+        .interrupt-btn {
+            background: #f44336;
+            color: white;
+            border: none;
+            padding: 12px 32px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 15px;
+            font-weight: 600;
+            transition: background 0.2s;
+        }
+
+        .interrupt-btn:hover:not(:disabled) {
+            background: #d32f2f;
+        }
+
+        .interrupt-btn:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+            opacity: 0.6;
+        }
+
+        .interrupt-btn.active {
+            animation: pulse-red 1s infinite;
+        }
+
+        @keyframes pulse-red {
+            0%, 100% { background: #f44336; }
+            50% { background: #ff5252; }
+        }
+
         .status-indicator {
             display: inline-block;
             width: 8px;
@@ -338,6 +369,9 @@
                     rows="1
                     placeholder="商品名称：飞天茅台，请推荐unitCode 字段的值"
                 ></textarea>
+                <button class="interrupt-btn" id="interruptBtn" onclick="interruptMessage()" style="display: none;">
+                    □ 中止
+                </button>
                 <button class="send-btn" id="sendBtn" onclick="sendMessage()">发送</button>
             </div>
         </div>
@@ -346,6 +380,7 @@
     <script>
         let currentSessionId = null;
         let isProcessing = false;
+        let agentResponseStarted = false;  // Track if agent has started responding
         let currentTodos = [];  // Track all todos for current session
         const chatContainer = document.getElementById('chatContainer');
         const SCROLL_THRESHOLD = 80;
@@ -376,6 +411,7 @@
 
         function newChat() {
             currentSessionId = null;
+            agentResponseStarted = false;
             currentTodos = [];  // Reset todos for new chat
             updateSessionDisplay();
             chatContainer.innerHTML = `
@@ -385,6 +421,7 @@
             `;
             shouldAutoScroll = true;
             updateStatus('idle');
+            updateInterruptButtonState('done');
         }
 
         function addMessage(type, content, toolName = null) {
@@ -468,6 +505,72 @@
             });
         }
 
+        function updateInterruptButtonState(state) {
+            const interruptBtn = document.getElementById('interruptBtn');
+            const sendBtn = document.getElementById('sendBtn');
+
+            switch(state) {
+                case 'wait_for_response':
+                    // Show interrupt button but disabled (waiting for agent response)
+                    interruptBtn.style.display = 'block';
+                    interruptBtn.disabled = true;
+                    interruptBtn.classList.remove('active');
+                    break;
+
+                case 'agent_responding':
+                    // Make interrupt button clickable and highlighted
+                    interruptBtn.disabled = false;
+                    interruptBtn.classList.add('active');
+                    break;
+
+                case 'done':
+                    // Hide interrupt button, restore send button
+                    interruptBtn.style.display = 'none';
+                    interruptBtn.disabled = true;
+                    interruptBtn.classList.remove('active');
+                    break;
+            }
+        }
+
+        async function interruptMessage() {
+            if (!currentSessionId) {
+                console.warn('No active session to interrupt');
+                return;
+            }
+
+            const interruptBtn = document.getElementById('interruptBtn');
+            interruptBtn.disabled = true;  // Disable immediately to prevent double-click
+
+            try {
+                const response = await fetch('/api/interrupt', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ session_id: currentSessionId })
+                });
+
+                if (!response.ok) {
+                    console.error('Interrupt failed:', response.status);
+                    addError('中止请求失败');
+                    interruptBtn.disabled = false;  // Re-enable on error
+                } else {
+                    console.log('Interrupt request sent successfully');
+                    // Don't update UI immediately, wait for SSE interrupted event
+                }
+            } catch (error) {
+                console.error('Error sending interrupt:', error);
+                addError('中止请求异常: ' + error.message);
+                interruptBtn.disabled = false;  // Re-enable on error
+            }
+        }
+
+        function finishResponse() {
+            isProcessing = false;
+            agentResponseStarted = false;
+            updateStatus('idle');
+            document.getElementById('sendBtn').disabled = false;
+            updateInterruptButtonState('done');
+        }
+
         async function sendMessage() {
             if (isProcessing) return;
 
@@ -492,8 +595,10 @@
 
             // Disable input during processing
             isProcessing = true;
+            agentResponseStarted = false;
             updateStatus('loading');
             document.getElementById('sendBtn').disabled = true;
+            updateInterruptButtonState('wait_for_response');
 
             try {
                 const response = await fetch('/api/query', {
@@ -553,13 +658,12 @@
                 addError(error.message);
                 updateStatus('error');
             } finally {
-                isProcessing = false;
-                updateStatus('idle');
-                document.getElementById('sendBtn').disabled = false;
+                finishResponse();
             }
         }
 
         function handleSSEEvent(data) {
+            // Handle session_id in any event (session_created, result, etc.)
             if (data.session_id && !currentSessionId) {
                 currentSessionId = data.session_id;
                 updateSessionDisplay();
@@ -570,15 +674,33 @@
                 // Handle todo updates
                 currentTodos = data.todos;
                 updateTodoList(data.todos);
+            } else if (data.duration_ms !== undefined) {
+                // This is a result event - session completed
+                console.log('Session completed:', data);
+                // Session ID should already be set, but update if needed
+                if (data.session_id && !currentSessionId) {
+                    currentSessionId = data.session_id;
+                    updateSessionDisplay();
+                }
             } else if (data.content) {
-                // Message content
+                // Agent message - mark agent as responding
+                if (!agentResponseStarted) {
+                    agentResponseStarted = true;
+                    updateInterruptButtonState('agent_responding');
+                }
                 addMessage('assistant-message', data.content);
             } else if (data.tool) {
                 // Tool use
                 addMessage('tool_use', null, data.tool);
             } else if (data.message) {
-                // Error message
-                addError(data.message);
+                // Check if this is an interrupted event
+                if (data.message && (data.message.includes('interrupted') || data.message.includes('中断'))) {
+                    addMessage('assistant-message', '❌ ' + data.message);
+                    finishResponse();
+                } else {
+                    // Regular error message
+                    addError(data.message);
+                }
             }
         }
 
