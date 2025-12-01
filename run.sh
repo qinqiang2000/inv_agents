@@ -19,7 +19,7 @@ fi
 
 # Load environment variables from .env.prod file
 if [ -f .env.prod ]; then
-    source .env.prod
+    export $(cat .env.prod | xargs)
     echo "✅ Loaded environment variables from .env.prod"
 else
     echo "⚠️  .env.prod file not found (optional)"

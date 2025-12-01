@@ -54,6 +54,21 @@ def build_initial_prompt(
     return "\n".join(parts)
 
 
+def extract_todos_from_tool(tool_block: ToolUseBlock) -> Optional[list]:
+    """
+    Extract todos array from TodoWrite tool input.
+
+    Args:
+        tool_block: ToolUseBlock from Claude SDK
+
+    Returns:
+        List of todo objects or None if not a TodoWrite block
+    """
+    if tool_block.name == "TodoWrite" and isinstance(tool_block.input, dict):
+        return tool_block.input.get("todos", [])
+    return None
+
+
 def format_sse_message(event_type: str, data: any) -> dict:
     """
     Format a message as Server-Sent Events (SSE) format.
@@ -126,10 +141,13 @@ async def stream_response(request: QueryRequest) -> AsyncGenerator[str, None]:
                         elif isinstance(block, ToolUseBlock):
                             # 完整记录工具调用（INFO级别）
                             logger.info(f"[Tool] {block.name} - Input: {block.input}")
-                            # yield format_sse_message("tool_use", {
-                            #     "tool": block.name,
-                            #     "input": str(block.input) if block.input else None
-                            # })
+
+                            # Check for TodoWrite and emit todos
+                            if block.name == "TodoWrite":
+                                todos = extract_todos_from_tool(block)
+                                if todos:
+                                    logger.info(f"[TodoWrite] Emitting {len(todos)} todos")
+                                    yield format_sse_message("todos_update", {"todos": todos})
 
                 elif isinstance(msg, ResultMessage):
                     # Extract and send session_id for new sessions

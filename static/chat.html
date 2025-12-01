@@ -78,40 +78,57 @@
         }
 
         .config-section {
-            padding: 20px 30px;
+            padding: 12px 30px;
             background: #fafafa;
             border-bottom: 1px solid #e0e0e0;
         }
 
         .config-row {
             display: flex;
-            gap: 20px;
-            margin-bottom: 12px;
+            gap: 16px;
+            align-items: center;
+            flex-wrap: wrap;
+            margin-bottom: 4px;
         }
 
         .config-field {
             flex: 1;
+            display: flex;
+            align-items: center;
+            gap: 8px;
         }
 
         .config-field label {
-            display: block;
+            display: inline-flex;
             font-size: 13px;
             color: #666;
-            margin-bottom: 6px;
+            margin-bottom: 0;
+            white-space: nowrap;
         }
 
         .config-field input, .config-field select {
-            width: 100%;
+            flex: 1;
+            width: auto;
             padding: 8px 12px;
             border: 1px solid #ddd;
             border-radius: 6px;
             font-size: 14px;
         }
 
+        .config-field--narrow {
+            flex: 0 0 auto;
+        }
+
+        .config-field--narrow input,
+        .config-field--narrow select {
+            width: 110px;
+        }
+
         .chat-container {
             flex: 1;
             overflow-y: auto;
             padding: 20px 30px;
+            padding-bottom: 120px;
             background: white;
             min-height: 0;
         }
@@ -124,12 +141,12 @@
         }
 
         .user-message {
-            background: #e3f2fd;
+            background: #f5f5f5;
             margin-left: auto;
         }
 
         .assistant-message {
-            background: #f5f5f5;
+            background: #e3f2fd;
         }
 
         .tool-use {
@@ -224,6 +241,46 @@
             border-radius: 4px;
             color: #c62828;
         }
+
+        .todos-container {
+            position: fixed;
+            bottom: 100px;
+            left: 50%;
+            transform: translateX(-50%);
+            max-width: 940px;
+            width: calc(100% - 80px);
+            z-index: 10;
+        }
+
+        .todos-list {
+            display: flex;
+            flex-direction: column;
+            gap: 2px;
+        }
+
+        .todo-item {
+            font-size: 12px;
+            line-height: 1.3;
+            display: flex;
+            align-items: flex-start;
+            gap: 6px;
+        }
+
+        .todo-status {
+            font-size: 12px;
+            flex-shrink: 0;
+            line-height: 1;
+        }
+
+        .todo-content {
+            flex: 1;
+            word-break: break-word;
+            color: #666;
+        }
+
+        .todo-item.completed {
+            opacity: 0.5;
+        }
     </style>
 </head>
 <body>
@@ -242,11 +299,11 @@
 
         <div class="config-section">
             <div class="config-row">
-                <div class="config-field">
+                <div class="config-field config-field--narrow">
                     <label for="tenantId">租户ID</label>
                     <input type="text" id="tenantId" value="1" placeholder="例如: 1, 10, 89">
                 </div>
-                <div class="config-field">
+                <div class="config-field config-field--narrow">
                     <label for="countryCode">国家代码 (可选)</label>
                     <input type="text" id="countryCode" value="MY" placeholder="例如: MY, DE, SG">
                 </div>
@@ -257,7 +314,7 @@
                         <option value="">无 (不使用skill)</option>
                     </select>
                 </div>
-                <div class="config-field">
+                <div class="config-field config-field--narrow">
                     <label for="language">语言</label>
                     <select id="language">
                         <option value="中文">中文</option>
@@ -278,7 +335,7 @@
                 <textarea
                     id="promptInput"
                     class="prompt-input"
-                    rows="2"
+                    rows="1
                     placeholder="商品名称：飞天茅台，请推荐unitCode 字段的值"
                 ></textarea>
                 <button class="send-btn" id="sendBtn" onclick="sendMessage()">发送</button>
@@ -289,6 +346,7 @@
     <script>
         let currentSessionId = null;
         let isProcessing = false;
+        let currentTodos = [];  // Track all todos for current session
         const chatContainer = document.getElementById('chatContainer');
         const SCROLL_THRESHOLD = 80;
         let shouldAutoScroll = true;
@@ -318,6 +376,7 @@
 
         function newChat() {
             currentSessionId = null;
+            currentTodos = [];  // Reset todos for new chat
             updateSessionDisplay();
             chatContainer.innerHTML = `
                 <div style="text-align: center; color: #999; padding: 40px;">
@@ -345,7 +404,6 @@
 
                 const label = type === 'user-message' ? 'User' : 'Agent';
                 messageDiv.innerHTML = `
-                    <div class="message-label">${label}</div>
                     <div class="message-content">${escapeHtml(content)}</div>
                 `;
 
@@ -367,6 +425,47 @@
             const div = document.createElement('div');
             div.textContent = text;
             return div.innerHTML;
+        }
+
+        function updateTodoList(todos) {
+            // Check if all todos are completed - if so, remove container
+            const allCompleted = todos.length > 0 && todos.every(t => t.status === 'completed');
+            let todosDiv = document.getElementById('todosContainer');
+
+            if (allCompleted) {
+                if (todosDiv) {
+                    todosDiv.remove();
+                }
+                return;
+            }
+
+            if (!todosDiv) {
+                // Create new todo container (fixed to bottom)
+                todosDiv = document.createElement('div');
+                todosDiv.className = 'todos-container';
+                todosDiv.id = 'todosContainer';
+                todosDiv.innerHTML = `<div class="todos-list" id="todosList"></div>`;
+                document.body.appendChild(todosDiv);  // Append to body for fixed positioning
+            }
+
+            // Render ALL todos (keep all visible including completed)
+            const todosList = document.getElementById('todosList');
+            todosList.innerHTML = '';
+
+            todos.forEach(todo => {
+                const todoItem = document.createElement('div');
+                todoItem.className = `todo-item ${todo.status}`;
+
+                // Only 2 icons: ✅ for completed, ⏳ for everything else
+                let statusEmoji = todo.status === 'completed' ? '✅' : '⏳';
+
+                todoItem.innerHTML = `
+                    <span class="todo-status">${statusEmoji}</span>
+                    <span class="todo-content">${escapeHtml(todo.content)}</span>
+                `;
+
+                todosList.appendChild(todoItem);
+            });
         }
 
         async function sendMessage() {
@@ -467,7 +566,11 @@
                 console.log('Session created:', currentSessionId);
             }
 
-            if (data.content) {
+            if (data.todos) {
+                // Handle todo updates
+                currentTodos = data.todos;
+                updateTodoList(data.todos);
+            } else if (data.content) {
                 // Message content
                 addMessage('assistant-message', data.content);
             } else if (data.tool) {

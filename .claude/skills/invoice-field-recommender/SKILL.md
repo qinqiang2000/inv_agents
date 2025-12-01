@@ -273,11 +273,6 @@ else:
     return semantic_match_in_global_data(query_context)
 ```
 
-**为什么重要？**
-- 各国税制、商业习惯、监管要求不同
-- Country-specific 数据更符合当地实践
-- 例如: MY 的 XPP(Piece) 可能比 global 的 EA(Each) 更符合当地发票规范
-
 **✅ 正确的思维方式**
 
 对于任何字段推荐：
@@ -298,7 +293,7 @@ When all required inputs are provided, return recommendations as a JSON array (f
     "recommended": "推荐值",
     "reason": "理由: 优先是上面step1或step2得出的理由；如果没有，才用common sense，且说明因为step1和step2都找不到合适的值"
   },
-  ...
+  ... // "不超过3个值；优先Country-specific 的推荐值"
 ]
 ```
 
