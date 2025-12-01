@@ -17,6 +17,103 @@ Use this skill when the user provides:
 - Product information (name, description, or code)
 - Target field name to recommend (e.g., `TaxCategory`, `UnitCode`, `ItemClassificationCode`)
 
+## Input Validation
+
+**CRITICAL: Before starting the recommendation workflow, validate all required inputs.**
+
+### Required Parameters
+
+The following parameters are **mandatory** and must be provided by the user:
+
+1. **Tenant ID** (租户ID)
+   - Format: Numeric (e.g., `1`, `10`, `89`)
+   - Purpose: Locate historical invoice data directory
+   - Example: `1`, `10`, `89`
+
+2. **Country Code** (国家代码)
+   - Format: 2-letter ISO country code (e.g., `DE`, `FR`, `MY`)
+   - Purpose: Locate country-specific data and historical invoices
+   - Example: `DE`, `MY`, `SG`
+
+3. **Target Field Name** (目标字段名称)
+   - Format: UBL field name (e.g., `TaxCategory`, `UnitCode`)
+   - Purpose: Identify which field value to recommend
+   - Example: `TaxCategory`, `UnitCode`, `ItemClassificationCode`, `PaymentMeans`
+
+### Optional Parameters
+
+- **Product Information** (商品信息): Name, description, or code
+  - While optional, this is **highly recommended** for accurate semantic matching
+  - Without product information, recommendations will be based solely on basic master data
+  - May result in less accurate or generic recommendations
+
+### Validation Process
+
+**BEFORE entering the Recommendation Workflow (Step 1), perform this validation:**
+
+1. **Check for missing required parameters**:
+   ```
+   Missing = []
+   if Tenant ID not provided → add "Tenant ID (租户ID)" to Missing
+   if Country Code not provided → add "Country Code (国家代码)" to Missing
+   if Target Field Name not provided → add "Target Field Name (目标字段名称)" to Missing
+   ```
+
+2. **If any required parameter is missing**:
+   - DO NOT proceed to Step 1
+   - Return an error response using the format below
+   - DO NOT attempt to guess or use default values
+
+3. **If Product Information is missing**:
+   - Proceed with the workflow (it's optional)
+   - Skip Step 1 (historical invoice search requires product context)
+   - Go directly to Step 2 (basic master data lookup)
+   - Include a warning in the response about reduced accuracy
+
+### Error Response Format
+
+When required parameters are missing, return this JSON structure:
+
+```json
+{
+  "error": "INSUFFICIENT_INPUT",
+  "message": "无法提供推荐，缺少必要的输入参数。请提供以下信息后重试。",
+  "message_en": "Cannot provide recommendations. Missing required input parameters. Please provide the following information and try again.",
+  "missing_parameters": [
+    "Tenant ID (租户ID): e.g., 1, 10, 89",
+    "Country Code (国家代码): e.g., DE, FR, MY"
+  ],
+  "required_format": "示例格式: 租户1, 德国(DE), 商品'DJI Drone', 推荐 TaxCategory 字段",
+  "required_format_en": "Example format: Tenant 1, Germany (DE), product 'DJI Drone', recommend TaxCategory field"
+}
+```
+
+**Example Error Responses:**
+
+Missing all required parameters:
+```json
+{
+  "error": "INSUFFICIENT_INPUT",
+  "message": "无法提供推荐，缺少必要的输入参数。请提供以下信息后重试。",
+  "missing_parameters": [
+    "Tenant ID (租户ID): e.g., 1, 10, 89",
+    "Country Code (国家代码): e.g., DE, FR, MY",
+    "Target Field Name (目标字段): e.g., TaxCategory, UnitCode"
+  ],
+  "required_format": "示例: 租户1, 德国(DE), 商品'DJI Drone', 推荐 TaxCategory"
+}
+```
+
+Missing only Tenant ID:
+```json
+{
+  "error": "INSUFFICIENT_INPUT",
+  "message": "缺少租户ID。请提供租户ID（如：1, 10, 89）。",
+  "missing_parameters": ["Tenant ID (租户ID): e.g., 1, 10, 89"],
+  "required_format": "示例: 租户1, 德国(DE), 商品'DJI Drone', 推荐 TaxCategory"
+}
+```
+
 ## Recommendation Workflow
 
 **核心原则**: 所有推荐必须基于**语义相似性**（比较查询上下文与数据源的相关性），而非简单的租户/国家匹配
@@ -191,7 +288,9 @@ else:
 
 ## Output Format
 
-Return recommendations as a JSON array (formatted for readability):
+### Success Response Format
+
+When all required inputs are provided, return recommendations as a JSON array (formatted for readability):
 
 ```json
 [
@@ -202,6 +301,10 @@ Return recommendations as a JSON array (formatted for readability):
   ...
 ]
 ```
+
+### Error Response Format
+
+When required inputs are missing, return the error format defined in the Input Validation section above.
 
 ## Resources
 
