@@ -17,6 +17,7 @@ OUTPUT_BASE_DIR="../context"
 # 运行模式配置
 EXPORT_MODE="${EXPORT_MODE:-full}"           # full: 全量导出(默认), incremental: 增量导出
 DRY_RUN="${DRY_RUN:-false}"                  # true: 测试模式(不写入文件), false: 正常模式
+TENANT_ID="${TENANT_ID:-}"                   # 指定租户ID(可选)，为空则处理所有租户
 STATE_FILE_DIR="${OUTPUT_BASE_DIR}/.export_state"
 STATE_FILE="${STATE_FILE_DIR}/.last_export_time"
 LOCK_FILE="${STATE_FILE_DIR}/.export.lock"
@@ -359,14 +360,22 @@ export_incremental() {
 
     log_info "导出时间边界: ${export_boundary}"
 
-    # 获取所有租户列表
-    log_info "获取租户列表..."
-    local tenants=$(mysql -h"${DB_HOST}" -P"${DB_PORT}" -u"${DB_USER}" -p"${DB_PASSWORD}" "${DB_NAME}" \
-        --batch --skip-column-names -e "SELECT DISTINCT ftenant_id FROM t_invoice WHERE fissue_status = 3 ORDER BY ftenant_id")
+    # 获取租户列表
+    local tenants
+    if [ -n "${TENANT_ID}" ]; then
+        # 指定了租户ID，只处理该租户
+        log_info "指定租户ID: ${TENANT_ID}"
+        tenants="${TENANT_ID}"
+    else
+        # 获取所有租户列表
+        log_info "获取所有租户列表..."
+        tenants=$(mysql -h"${DB_HOST}" -P"${DB_PORT}" -u"${DB_USER}" -p"${DB_PASSWORD}" "${DB_NAME}" \
+            --batch --skip-column-names -e "SELECT DISTINCT ftenant_id FROM t_invoice WHERE fissue_status = 3 ORDER BY ftenant_id")
 
-    if [ $? -ne 0 ] || [ -z "${tenants}" ]; then
-        log_error "获取租户列表失败"
-        return 1
+        if [ $? -ne 0 ] || [ -z "${tenants}" ]; then
+            log_error "获取租户列表失败"
+            return 1
+        fi
     fi
 
     local total_export_count=0
@@ -393,11 +402,24 @@ export_incremental() {
         # 构建并执行查询
         local query=$(build_query "incremental" "${tenant_id}" "${last_time}" "${export_boundary}")
 
+        # 使用临时文件避免管道子shell的变量作用域问题
+        local temp_result="${STATE_FILE_DIR}/.query_result.${tenant_id}.$$"
+        
+        mysql -h"${DB_HOST}" -P"${DB_PORT}" -u"${DB_USER}" -p"${DB_PASSWORD}" "${DB_NAME}" \
+            --batch --skip-column-names -e "${query}" > "${temp_result}"
+
+        # 检查查询状态
+        if [ $? -ne 0 ]; then
+            log_error "租户 ${tenant_id}: 查询失败"
+            rm -f "${temp_result}"
+            update_export_time "${tenant_id}" "${export_boundary}" "0" "FAILED"
+            continue
+        fi
+
         local tenant_export_count=0
         local tenant_error_count=0
 
-        mysql -h"${DB_HOST}" -P"${DB_PORT}" -u"${DB_USER}" -p"${DB_PASSWORD}" "${DB_NAME}" \
-            --batch --skip-column-names -e "${query}" | \
+        # 处理查询结果
         while IFS=$'\t' read -r tid country issue_date invoice_no ext_field update_time; do
             # 跳过空行
             if [ -z "$tid" ]; then
@@ -410,14 +432,10 @@ export_incremental() {
             else
                 ((tenant_error_count++))
             fi
-        done
+        done < "${temp_result}"
 
-        # 检查查询状态
-        if [ $? -ne 0 ]; then
-            log_error "租户 ${tenant_id}: 查询失败"
-            update_export_time "${tenant_id}" "${export_boundary}" "0" "FAILED"
-            continue
-        fi
+        # 清理临时文件
+        rm -f "${temp_result}"
 
         # 更新状态(即使记录数为0也要更新，表示已同步到边界时间)
         update_export_time "${tenant_id}" "${export_boundary}" "${tenant_export_count}" "SUCCESS"

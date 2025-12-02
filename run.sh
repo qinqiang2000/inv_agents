@@ -17,13 +17,7 @@ else
     exit 1
 fi
 
-# Load environment variables from .env.prod file
-if [ -f .env.prod ]; then
-    export $(cat .env.prod | xargs)
-    echo "✅ Loaded environment variables from .env.prod"
-else
-    echo "⚠️  .env.prod file not found (optional)"
-fi
+# Environment variables are loaded by python-dotenv in app.py
 
 # Check if dependencies are installed
 if ! python -c "import fastapi" 2>/dev/null; then

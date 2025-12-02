@@ -2,31 +2,66 @@
 
 import logging
 import json
+import os
+from datetime import datetime
 from fastapi import APIRouter, HTTPException, Request
+from fastapi.responses import JSONResponse
+from pydantic import ValidationError
 from sse_starlette.sse import EventSourceResponse
-from claude_agent_sdk import ClaudeSDKClient, ClaudeAgentOptions
 from .models import QueryRequest
 from . import agent_service
-from .session_manager import get_session_manager
+
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api", tags=["agent"])
 
+# Base directory for storing pending invoices
+PENDING_INVOICES_DIR = "context/pending-invoices"
+
+
+def save_invoice_context(tenant_id: str, country_code: str, context: str) -> str:
+    """
+    Save invoice context to file.
+    
+    Args:
+        tenant_id: Tenant identifier
+        country_code: Country code
+        context: Invoice data in UBL 2.1 format
+        
+    Returns:
+        File path where the context was saved
+    """
+    # Create directory if not exists
+    tenant_dir = os.path.join(PENDING_INVOICES_DIR, tenant_id)
+    os.makedirs(tenant_dir, exist_ok=True)
+    
+    # Generate filename with timestamp (to milliseconds)
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")[:-3]  # Remove last 3 digits to get milliseconds
+    filename = f"draft_{country_code}_{timestamp}.xml"
+    file_path = os.path.join(tenant_dir, filename)
+    
+    # Write context to file
+    with open(file_path, 'w', encoding='utf-8') as f:
+        f.write(context)
+    
+    logger.info(f"Saved invoice context to: {file_path}")
+    return file_path
+
 
 @router.post("/query")
-async def query_agent(request: QueryRequest, http_request: Request):
+async def query_agent(request: Request):
     """
     Query the Claude agent with streaming response.
 
     Args:
-        request: Query request containing tenant_id, prompt, skill, etc.
-        http_request: FastAPI Request object for accessing HTTP request details
+        request: FastAPI Request object for accessing HTTP request details
 
     Returns:
         Server-Sent Events (SSE) stream with agent responses
 
-    Example:
+    Examples:
+        New Session (requires country_code and language):
         ```
         POST /api/query
         {
@@ -35,7 +70,18 @@ async def query_agent(request: QueryRequest, http_request: Request):
           "skill": "invoice-field-recommender",
           "language": "中文",
           "session_id": null,
-          "country_code": "MY"
+          "country_code": "MY",
+          "context": "<Invoice>...</Invoice>"
+        }
+        ```
+
+        Continuation Session (country_code and language optional):
+        ```
+        POST /api/query
+        {
+          "tenant_id": "1",
+          "prompt": "继续前面的对话",
+          "session_id": "abc-123-def"
         }
         ```
 
@@ -53,29 +99,75 @@ async def query_agent(request: QueryRequest, http_request: Request):
         event: result
         data: {"session_id": "abc-123", "duration_ms": 1234, ...}
         ```
+
+    Validation Rules:
+        - New sessions (session_id is null/absent): Require country_code and language
+        - Continuation sessions (session_id present): country_code and language are optional
     """
     try:
-        # Print all request body information
-        request_dict = request.model_dump()
-        logger.info(f"Request body: {json.dumps(request_dict, ensure_ascii=False, indent=2)}")
+        # Parse and validate request body
+        body = await request.json()
         
-        # Print HTTP request information
-        logger.info(f"HTTP Method: {http_request.method}")
-        logger.info(f"URL: {http_request.url}")
-        logger.info(f"Headers: {dict(http_request.headers)}")
-        logger.info(f"Query params: {dict(http_request.query_params)}")
-        logger.info(f"Client: {http_request.client}")
+        try:
+            query_request = QueryRequest(**body)
+        except ValidationError as e:
+            # Return 422 with detailed validation errors (industry best practice)
+            errors = []
+            for error in e.errors():
+                field = ".".join(str(loc) for loc in error["loc"])
+                errors.append({
+                    "field": field,
+                    "message": error["msg"],
+                    "type": error["type"]
+                })
+            logger.warning(f"Validation error: {errors}")
+            return JSONResponse(
+                status_code=422,
+                content={
+                    "error": "Validation Error",
+                    "message": "Request validation failed",
+                    "details": errors
+                }
+            )
+        
+        # Print request body information
+        request_dict = query_request.model_dump()
+        # Log context partially if present (first 200 chars)
+        log_dict = request_dict.copy()
+        if log_dict.get("context"):
+            context_preview = log_dict["context"][:200] + "..." if len(log_dict["context"]) > 200 else log_dict["context"]
+            log_dict["context"] = f"[{len(request_dict['context'])} chars] {context_preview}"
+        logger.info(f"Request body: {json.dumps(log_dict, ensure_ascii=False, indent=2)}")
         
         logger.info(
-            f"Received query request: tenant={request.tenant_id}, "
-            f"skill={request.skill}, session={request.session_id}"
+            f"Received query request: tenant={query_request.tenant_id}, "
+            f"skill={query_request.skill}, session={query_request.session_id}"
         )
 
+        # Save invoice context if conditions are met
+        invoice_file_path = None
+        if query_request.context and query_request.skill == "invoice-field-recommender":
+            invoice_file_path = save_invoice_context(
+                tenant_id=query_request.tenant_id,
+                country_code=query_request.country_code,
+                context=query_request.context
+            )
+
         return EventSourceResponse(
-            agent_service.stream_response(request),
+            agent_service.stream_response(query_request, invoice_file_path=invoice_file_path),
             media_type="text/event-stream"
         )
 
+    except json.JSONDecodeError as e:
+        logger.error(f"Invalid JSON in request body: {str(e)}")
+        return JSONResponse(
+            status_code=400,
+            content={
+                "error": "Bad Request",
+                "message": "Invalid JSON in request body",
+                "details": str(e)
+            }
+        )
     except Exception as e:
         logger.error(f"Error in query_agent: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
@@ -87,61 +179,4 @@ async def health_check():
     return {"status": "healthy", "service": "invoice-field-recommender-agent"}
 
 
-@router.post("/interrupt")
-async def interrupt_agent(request: Request):
-    """
-    Interrupt a running Claude SDK session.
 
-    Args:
-        request: HTTP request containing session_id in JSON body
-
-    Request body:
-        ```json
-        {
-            "session_id": "session-uuid"
-        }
-        ```
-
-    Returns:
-        JSON response indicating success/failure
-
-    Example:
-        ```
-        POST /api/interrupt
-        {"session_id": "abc-123"}
-
-        Response:
-        {"success": true, "message": "Interrupt request processed", "session_id": "abc-123"}
-        ```
-    """
-    try:
-        body = await request.json()
-        session_id = body.get("session_id")
-
-        if not session_id:
-            raise HTTPException(status_code=400, detail="Missing session_id")
-
-        logger.info(f"Received interrupt request for session: {session_id}")
-
-        # Get the active client from session manager
-        session_manager = get_session_manager()
-        success = await session_manager.interrupt(session_id)
-
-        if success:
-            logger.info(f"Successfully interrupted session {session_id}")
-        else:
-            logger.warning(f"Session {session_id} not found or already ended")
-
-        # Always return success (silent ignore errors per requirement)
-        return {
-            "success": True,
-            "message": "Interrupt request processed",
-            "session_id": session_id
-        }
-
-    except HTTPException:
-        # Re-raise HTTP exceptions
-        raise
-    except Exception as e:
-        logger.error(f"Error in interrupt_agent: {str(e)}", exc_info=True)
-        raise HTTPException(status_code=500, detail=str(e))

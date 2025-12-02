@@ -15,7 +15,7 @@ from claude_agent_sdk import (
     ToolUseBlock
 )
 from .models import QueryRequest
-from .session_manager import get_session_manager
+
 
 logger = logging.getLogger(__name__)
 
@@ -26,6 +26,7 @@ def build_initial_prompt(
     skill: Optional[str] = None,
     country_code: Optional[str] = None,
     language: str = "中文",
+    invoice_file_path: Optional[str] = None,
 ) -> str:
     """
     Build the initial prompt for new conversations.
@@ -34,7 +35,9 @@ def build_initial_prompt(
         tenant_id: Tenant identifier
         user_prompt: User's query
         skill: Optional skill name to use
+        country_code: Country code for invoice
         language: Response language
+        invoice_file_path: Path to the saved invoice file
 
     Returns:
         Formatted prompt string
@@ -44,6 +47,9 @@ def build_initial_prompt(
 
     if country_code:
         parts.append(f"发票开具国家代码：{country_code}")
+
+    if invoice_file_path:
+        parts.append(f"Invoice File Path：{invoice_file_path}")
 
     if skill:
         parts.append(f"要使用的skill：{skill}")
@@ -94,12 +100,16 @@ def format_sse_message(event_type: str, data: any) -> dict:
     return ret
 
 
-async def stream_response(request: QueryRequest) -> AsyncGenerator[str, None]:
+async def stream_response(
+    request: QueryRequest,
+    invoice_file_path: Optional[str] = None
+) -> AsyncGenerator[str, None]:
     """
     Stream Claude SDK responses as Server-Sent Events.
 
     Args:
         request: Query request with tenant, prompt, skill, etc.
+        invoice_file_path: Path to the saved invoice context file
 
     Yields:
         SSE-formatted messages
@@ -118,6 +128,7 @@ async def stream_response(request: QueryRequest) -> AsyncGenerator[str, None]:
                 skill=request.skill,
                 country_code=request.country_code,
                 language=request.language,
+                invoice_file_path=invoice_file_path,
             )
             logger.info(f"Starting new session: \n prompt: {prompt}")
 
@@ -136,23 +147,14 @@ async def stream_response(request: QueryRequest) -> AsyncGenerator[str, None]:
             # Track session_id for new sessions
             session_id_sent = False
             actual_session_id = request.session_id  # Start with existing session_id if resuming
-            session_manager = get_session_manager()
 
-            # For resumed sessions, register immediately
-            if request.session_id:
-                await session_manager.register(request.session_id, client)
-                logger.info(f"Registered resumed session: {request.session_id}")
-
-            try:
-                async for msg in client.receive_response():
+            async for msg in client.receive_response():
                     # Catch system init message with session_id (first message)
                     if isinstance(msg, SystemMessage):
                         if msg.subtype == 'init' and not request.session_id and not session_id_sent:
                             # Extract session_id from data
                             if isinstance(msg.data, dict) and 'session_id' in msg.data:
                                 actual_session_id = msg.data['session_id']
-                                # Register client in session manager for interrupt support
-                                await session_manager.register(actual_session_id, client)
                                 yield format_sse_message("session_created", {
                                     "session_id": actual_session_id
                                 })
@@ -201,18 +203,7 @@ async def stream_response(request: QueryRequest) -> AsyncGenerator[str, None]:
                             f"duration={msg.duration_ms}ms, turns={msg.num_turns}, error={msg.is_error}"
                         )
 
-            except asyncio.CancelledError:
-                # Session was interrupted by user
-                session_id = request.session_id or actual_session_id or "unknown"
-                logger.info(f"Session {session_id} interrupted by user")
-                yield format_sse_message("interrupted", {
-                    "message": "Agent execution interrupted",
-                    "session_id": session_id
-                })
-            finally:
-                # Unregister session when done
-                if actual_session_id:
-                    await session_manager.unregister(actual_session_id)
+
 
     except Exception as e:
         logger.error(f"Error in stream_response: {str(e)}", exc_info=True)

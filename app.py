@@ -3,7 +3,11 @@
 import logging
 import os
 from pathlib import Path
+from dotenv import load_dotenv
 from fastapi import FastAPI
+
+# Load environment variables from .env.prod
+load_dotenv('.env.prod')
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
@@ -56,6 +60,8 @@ async def startup_event():
     """Application startup event."""
     logger.info("Starting Invoice Field Recommender Agent")
     logger.info(f"Working directory: {Path.cwd()}")
+    logger.info(f"ANTHROPIC_BASE_URL: {os.getenv('ANTHROPIC_BASE_URL')}")
+    logger.info(f"ANTHROPIC_MODEL: {os.getenv('ANTHROPIC_MODEL')}")
 
 
 @app.on_event("shutdown")

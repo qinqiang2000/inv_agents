@@ -138,6 +138,7 @@
             padding: 12px 16px;
             border-radius: 8px;
             max-width: 80%;
+            font-size: 14px;
         }
 
         .user-message {
@@ -216,37 +217,6 @@
             cursor: not-allowed;
         }
 
-        .interrupt-btn {
-            background: #f44336;
-            color: white;
-            border: none;
-            padding: 12px 32px;
-            border-radius: 8px;
-            cursor: pointer;
-            font-size: 15px;
-            font-weight: 600;
-            transition: background 0.2s;
-        }
-
-        .interrupt-btn:hover:not(:disabled) {
-            background: #d32f2f;
-        }
-
-        .interrupt-btn:disabled {
-            background: #ccc;
-            cursor: not-allowed;
-            opacity: 0.6;
-        }
-
-        .interrupt-btn.active {
-            animation: pulse-red 1s infinite;
-        }
-
-        @keyframes pulse-red {
-            0%, 100% { background: #f44336; }
-            50% { background: #ff5252; }
-        }
-
         .status-indicator {
             display: inline-block;
             width: 8px;
@@ -312,14 +282,180 @@
         .todo-item.completed {
             opacity: 0.5;
         }
+
+        /* Context Modal Styles */
+        .modal-overlay {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.5);
+            z-index: 100;
+            justify-content: center;
+            align-items: center;
+        }
+
+        .modal-overlay.show {
+            display: flex;
+        }
+
+        .modal-content {
+            background: white;
+            border-radius: 12px;
+            padding: 24px;
+            width: 90%;
+            max-width: 600px;
+            max-height: 80vh;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .modal-header {
+            font-size: 18px;
+            font-weight: 600;
+            margin-bottom: 16px;
+            color: #333;
+        }
+
+        .modal-textarea {
+            flex: 1;
+            min-height: 300px;
+            padding: 12px;
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            font-family: monospace;
+            font-size: 13px;
+            resize: vertical;
+            margin-bottom: 16px;
+        }
+
+        .modal-textarea:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+
+        .modal-actions {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .action-buttons {
+            display: flex;
+            gap: 12px;
+        }
+
+        .recent-files {
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+        }
+
+        .recent-file-btn {
+            padding: 6px 12px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            background: #f8f9fa;
+            color: #666;
+            font-size: 12px;
+            cursor: pointer;
+            transition: all 0.2s;
+            max-width: 120px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        .recent-file-btn:hover {
+            border-color: #667eea;
+            color: #667eea;
+            background: #f0f4ff;
+        }
+
+        .modal-btn {
+            padding: 10px 24px;
+            border-radius: 6px;
+            font-size: 14px;
+            cursor: pointer;
+            border: none;
+        }
+
+        .modal-btn.cancel {
+            background: #f5f5f5;
+            color: #666;
+        }
+
+        .modal-btn.cancel:hover {
+            background: #e0e0e0;
+        }
+
+        .modal-btn.confirm {
+            background: #667eea;
+            color: white;
+        }
+
+        .modal-btn.confirm:hover {
+            background: #5568d3;
+        }
+
+        .modal-btn.file-import {
+            background: #28a745;
+            color: white;
+            font-size: 16px;
+            padding: 10px 12px;
+            min-width: auto;
+        }
+
+        .modal-btn.file-import:hover {
+            background: #218838;
+        }
+
+        /* Context Button Styles */
+        .context-btn {
+            background: none;
+            border: 1px solid #ddd;
+            border-radius: 6px;
+            padding: 6px 10px;
+            font-size: 16px;
+            cursor: pointer;
+            color: #999;
+            transition: all 0.2s;
+        }
+
+        .context-btn:hover {
+            border-color: #667eea;
+            color: #667eea;
+        }
+
+        .context-btn.has-context {
+            background: #e8f5e9;
+            border-color: #4caf50;
+            color: #4caf50;
+        }
     </style>
 </head>
 <body>
-    <div class="container">
-        <div class="header">
-            <h1>Invoice Field Recommender - Test Chat</h1>
+    <!-- Context Modal -->
+    <div class="modal-overlay" id="contextModal" onclick="closeContextModal(event)">
+        <div class="modal-content" onclick="event.stopPropagation()">
+            <div class="modal-header">添加 Invoice Context (XML)</div>
+            <textarea class="modal-textarea" id="contextInput" placeholder="粘贴 UBL 2.1 XML 发票数据..."></textarea>
+            <div class="modal-actions">
+                <div class="recent-files" id="recentFiles"></div>
+                <div class="action-buttons">
+                    <input type="file" id="fileInput" accept=".xml,.txt" style="display: none;" onchange="handleFileImport(event)">
+                    <button class="modal-btn file-import" onclick="document.getElementById('fileInput').click()" title="选择文件">📁</button>
+                    <button class="modal-btn cancel" onclick="closeContextModal()">取消</button>
+                    <button class="modal-btn confirm" onclick="saveContext()">确认</button>
+                </div>
+            </div>
         </div>
+    </div>
 
+    <div class="container">
         <div class="session-bar">
             <div class="session-info">
                 <span class="status-indicator status-idle" id="statusIndicator"></span>
@@ -352,6 +488,7 @@
                         <option value="English">English</option>
                     </select>
                 </div>
+                <button class="context-btn" id="contextBtn" onclick="openContextModal()" title="添加 Invoice Context">📎</button>
             </div>
         </div>
 
@@ -369,9 +506,7 @@
                     rows="1
                     placeholder="商品名称：飞天茅台，请推荐unitCode 字段的值"
                 ></textarea>
-                <button class="interrupt-btn" id="interruptBtn" onclick="interruptMessage()" style="display: none;">
-                    □ 中止
-                </button>
+
                 <button class="send-btn" id="sendBtn" onclick="sendMessage()">发送</button>
             </div>
         </div>
@@ -380,9 +515,130 @@
     <script>
         let currentSessionId = null;
         let isProcessing = false;
-        let agentResponseStarted = false;  // Track if agent has started responding
         let currentTodos = [];  // Track all todos for current session
+        let savedContext = null;  // Saved XML context for first message
+        let recentFiles = [];  // Track recent imported files (max 3)
         const chatContainer = document.getElementById('chatContainer');
+
+        // Context Modal Functions
+        function openContextModal() {
+            const modal = document.getElementById('contextModal');
+            const input = document.getElementById('contextInput');
+            input.value = savedContext || '';
+            updateRecentFilesDisplay();
+            modal.classList.add('show');
+            input.focus();
+        }
+
+        function closeContextModal(event) {
+            if (event && event.target !== event.currentTarget) return;
+            document.getElementById('contextModal').classList.remove('show');
+        }
+
+        function saveContext() {
+            const input = document.getElementById('contextInput');
+            const value = input.value.trim();
+            savedContext = value || null;
+            updateContextButton();
+            closeContextModal();
+        }
+
+        function updateContextButton() {
+            const btn = document.getElementById('contextBtn');
+            if (savedContext) {
+                btn.classList.add('has-context');
+                btn.title = 'Context 已添加 (点击编辑)';
+            } else {
+                btn.classList.remove('has-context');
+                btn.title = '添加 Invoice Context';
+            }
+        }
+
+        // File Import Functions
+        function handleFileImport(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                const content = e.target.result;
+                const input = document.getElementById('contextInput');
+                input.value = content;
+                
+                // Add to recent files with content
+                addToRecentFiles(file.name, content);
+                updateRecentFilesDisplay();
+            };
+            reader.readAsText(file);
+        }
+
+        function addToRecentFiles(fileName, content) {
+            // Remove if already exists
+            recentFiles = recentFiles.filter(f => f.name !== fileName);
+            // Add to beginning with content
+            recentFiles.unshift({ name: fileName, content: content });
+            // Keep only last 3
+            recentFiles = recentFiles.slice(0, 3);
+            // Save to localStorage
+            localStorage.setItem('recentInvoiceFiles', JSON.stringify(recentFiles));
+        }
+
+        function loadRecentFiles() {
+            try {
+                const saved = localStorage.getItem('recentInvoiceFiles');
+                if (saved) {
+                    const parsed = JSON.parse(saved);
+                    // Handle both old format (array of strings) and new format (array of objects)
+                    recentFiles = parsed.map(item => {
+                        if (typeof item === 'string') {
+                            return { name: item, content: null };
+                        }
+                        return item;
+                    });
+                }
+            } catch (e) {
+                console.warn('Failed to load recent files:', e);
+                recentFiles = [];
+            }
+        }
+
+        function updateRecentFilesDisplay() {
+            const container = document.getElementById('recentFiles');
+            container.innerHTML = '';
+            
+            recentFiles.forEach(fileObj => {
+                const btn = document.createElement('button');
+                btn.className = 'recent-file-btn';
+                btn.textContent = fileObj.name;
+                btn.title = `点击导入: ${fileObj.name}`;
+                btn.onclick = () => reimportRecentFile(fileObj);
+                container.appendChild(btn);
+            });
+        }
+
+        function reimportRecentFile(fileObj) {
+            if (fileObj.content) {
+                // Directly paste the saved content
+                const input = document.getElementById('contextInput');
+                input.value = fileObj.content;
+                
+                // Move this file to the top of recent files
+                addToRecentFiles(fileObj.name, fileObj.content);
+                updateRecentFilesDisplay();
+            } else {
+                // Fallback: if no content saved, prompt for file selection
+                const input = document.createElement('input');
+                input.type = 'file';
+                input.accept = '.xml,.txt';
+                input.onchange = function(e) {
+                    const file = e.target.files[0];
+                    if (file) {
+                        handleFileImport(e);
+                    }
+                };
+                input.click();
+            }
+        }
         const SCROLL_THRESHOLD = 80;
         let shouldAutoScroll = true;
 
@@ -411,9 +667,10 @@
 
         function newChat() {
             currentSessionId = null;
-            agentResponseStarted = false;
             currentTodos = [];  // Reset todos for new chat
+            savedContext = null;  // Clear context for new chat
             updateSessionDisplay();
+            updateContextButton();  // Reset context button style
             chatContainer.innerHTML = `
                 <div style="text-align: center; color: #999; padding: 40px;">
                     输入您的问题开始对话...
@@ -421,7 +678,6 @@
             `;
             shouldAutoScroll = true;
             updateStatus('idle');
-            updateInterruptButtonState('done');
         }
 
         function addMessage(type, content, toolName = null) {
@@ -505,70 +761,10 @@
             });
         }
 
-        function updateInterruptButtonState(state) {
-            const interruptBtn = document.getElementById('interruptBtn');
-            const sendBtn = document.getElementById('sendBtn');
-
-            switch(state) {
-                case 'wait_for_response':
-                    // Show interrupt button but disabled (waiting for agent response)
-                    interruptBtn.style.display = 'block';
-                    interruptBtn.disabled = true;
-                    interruptBtn.classList.remove('active');
-                    break;
-
-                case 'agent_responding':
-                    // Make interrupt button clickable and highlighted
-                    interruptBtn.disabled = false;
-                    interruptBtn.classList.add('active');
-                    break;
-
-                case 'done':
-                    // Hide interrupt button, restore send button
-                    interruptBtn.style.display = 'none';
-                    interruptBtn.disabled = true;
-                    interruptBtn.classList.remove('active');
-                    break;
-            }
-        }
-
-        async function interruptMessage() {
-            if (!currentSessionId) {
-                console.warn('No active session to interrupt');
-                return;
-            }
-
-            const interruptBtn = document.getElementById('interruptBtn');
-            interruptBtn.disabled = true;  // Disable immediately to prevent double-click
-
-            try {
-                const response = await fetch('/api/interrupt', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ session_id: currentSessionId })
-                });
-
-                if (!response.ok) {
-                    console.error('Interrupt failed:', response.status);
-                    addError('中止请求失败');
-                    interruptBtn.disabled = false;  // Re-enable on error
-                } else {
-                    console.log('Interrupt request sent successfully');
-                    // Don't update UI immediately, wait for SSE interrupted event
-                }
-            } catch (error) {
-                console.error('Error sending interrupt:', error);
-                addError('中止请求异常: ' + error.message);
-                interruptBtn.disabled = false;  // Re-enable on error
-            }
-        }
-
         function finishResponse() {
             isProcessing = false;
-            agentResponseStarted = false;
             updateStatus('idle');
             document.getElementById('sendBtn').disabled = false;
-            updateInterruptButtonState('done');
         }
 
         async function sendMessage() {
@@ -595,25 +791,31 @@
 
             // Disable input during processing
             isProcessing = true;
-            agentResponseStarted = false;
             updateStatus('loading');
             document.getElementById('sendBtn').disabled = true;
-            updateInterruptButtonState('wait_for_response');
 
             try {
+                // Build request body - include context only on first message
+                const requestBody = {
+                    tenant_id: tenantId,
+                    prompt: prompt,
+                    skill: skill || null,
+                    language: language,
+                    session_id: currentSessionId,
+                    country_code: countryCode || null
+                };
+
+                // Include context only on first message (when session_id is null)
+                if (!currentSessionId && savedContext) {
+                    requestBody.context = savedContext;
+                }
+
                 const response = await fetch('/api/query', {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
                     },
-                    body: JSON.stringify({
-                        tenant_id: tenantId,
-                        prompt: prompt,
-                        skill: skill || null,
-                        language: language,
-                        session_id: currentSessionId,
-                        country_code: countryCode || null
-                    })
+                    body: JSON.stringify(requestBody)
                 });
 
                 if (!response.ok) {
@@ -683,30 +885,29 @@
                     updateSessionDisplay();
                 }
             } else if (data.content) {
-                // Agent message - mark agent as responding
-                if (!agentResponseStarted) {
-                    agentResponseStarted = true;
-                    updateInterruptButtonState('agent_responding');
-                }
+                // Agent message
                 addMessage('assistant-message', data.content);
             } else if (data.tool) {
                 // Tool use
                 addMessage('tool_use', null, data.tool);
             } else if (data.message) {
-                // Check if this is an interrupted event
-                if (data.message && (data.message.includes('interrupted') || data.message.includes('中断'))) {
-                    addMessage('assistant-message', '❌ ' + data.message);
-                    finishResponse();
-                } else {
-                    // Regular error message
-                    addError(data.message);
-                }
+                // Error message
+                addError(data.message);
             }
         }
+
+        // Keyboard shortcut: Cmd+Enter (macOS) or Ctrl+Enter (Windows/Linux)
+        document.getElementById('promptInput').addEventListener('keydown', function(e) {
+            if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
+                e.preventDefault();
+                sendMessage();
+            }
+        });
 
         // Initialize
         updateSessionDisplay();
         updateStatus('idle');
+        loadRecentFiles();
     </script>
 </body>
 </html>
