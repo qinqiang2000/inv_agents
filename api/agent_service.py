@@ -3,6 +3,7 @@
 import asyncio
 import json
 import logging
+import os
 from typing import AsyncGenerator, Optional
 from claude_agent_sdk import (
     ClaudeSDKClient,
@@ -18,6 +19,9 @@ from .models import QueryRequest
 
 
 logger = logging.getLogger(__name__)
+
+# Timeout for waiting on first message from Claude SDK (seconds)
+FIRST_MESSAGE_TIMEOUT = int(os.getenv("CLAUDE_FIRST_MESSAGE_TIMEOUT", "120"))
 
 
 def build_initial_prompt(
@@ -114,6 +118,9 @@ async def stream_response(
     Yields:
         SSE-formatted messages
     """
+    # Immediately yield a heartbeat to keep connection alive
+    yield format_sse_message("heartbeat", {"status": "connecting"})
+    
     try:
         # Build prompt based on whether this is a new or resumed session
         if request.session_id:
@@ -140,18 +147,31 @@ async def stream_response(
             resume=request.session_id  # None for new, sessionId for resume
         )
 
+        logger.info("Creating ClaudeSDKClient...")
+        
         # Stream responses from Claude SDK
         async with ClaudeSDKClient(options=options) as client:
+            logger.info("ClaudeSDKClient connected, sending query...")
+            yield format_sse_message("heartbeat", {"status": "connected"})
+            
             await client.query(prompt)
+            logger.info("Query sent, waiting for response...")
+            yield format_sse_message("heartbeat", {"status": "processing"})
 
             # Track session_id for new sessions
             session_id_sent = False
             actual_session_id = request.session_id  # Start with existing session_id if resuming
+            first_message_received = False
 
             async for msg in client.receive_response():
+                    if not first_message_received:
+                        first_message_received = True
+                        logger.info(f"First message received: {type(msg).__name__}")
+                    
                     # Catch system init message with session_id (first message)
                     if isinstance(msg, SystemMessage):
-                        if msg.subtype == 'init' and not request.session_id and not session_id_sent:
+                        logger.debug(f"SystemMessage: subtype={getattr(msg, 'subtype', None)}, data={getattr(msg, 'data', None)}")
+                        if hasattr(msg, 'subtype') and msg.subtype == 'init' and not request.session_id and not session_id_sent:
                             # Extract session_id from data
                             if isinstance(msg.data, dict) and 'session_id' in msg.data:
                                 actual_session_id = msg.data['session_id']
@@ -202,6 +222,9 @@ async def stream_response(
                             f"Session {msg.session_id} completed: "
                             f"duration={msg.duration_ms}ms, turns={msg.num_turns}, error={msg.is_error}"
                         )
+            
+            if not first_message_received:
+                logger.warning("No messages received from Claude SDK")
 
 
 
