@@ -3,6 +3,7 @@
 发票数据导出脚本 - 高性能Python版本
 从t_invoice表中批量导出开票成功的发票数据，按租户和国家组织存储
 使用JSON_ARRAYAGG批量查询和多线程处理，大幅提升导出性能
+支持全量导出和增量导出两种模式
 """
 
 import pymysql
@@ -13,7 +14,7 @@ import logging
 import argparse
 import threading
 import time
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from typing import Dict, List, Optional, Any, Tuple
 from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -21,6 +22,7 @@ import re
 import gzip
 import shutil
 from tqdm import tqdm
+import fcntl
 
 # 配置日志
 logging.basicConfig(
@@ -50,6 +52,133 @@ SCRIPT_DIR = Path(__file__).resolve().parent
 PROJECT_ROOT = SCRIPT_DIR.parent
 OUTPUT_BASE_DIR = os.getenv('OUTPUT_DIR', str(PROJECT_ROOT / 'context' / 'invoices'))
 
+# 增量导出配置
+TIME_BUFFER_SECONDS = 300  # 5分钟安全边界，避免捕获正在进行的事务
+STATE_FILE_DIR = Path(OUTPUT_BASE_DIR) / '.export_state'
+STATE_FILE = STATE_FILE_DIR / '.last_export_time'
+LOCK_FILE = STATE_FILE_DIR / '.export.lock'
+
+
+class StateManager:
+    """增量导出状态管理"""
+
+    def __init__(self, lock_path: Path = None):
+        self.lock_path = lock_path or LOCK_FILE
+        self.lock_file = None
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self.release_lock()
+
+    def acquire_lock(self) -> bool:
+        """获取导出锁"""
+        try:
+            STATE_FILE_DIR.mkdir(parents=True, exist_ok=True)
+            self.lock_file = open(self.lock_path, 'w')
+            fcntl.flock(self.lock_file.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+            logger.info("已获取导出锁")
+            return True
+        except (OSError, IOError):
+            logger.error(f"另一个导出进程正在运行(锁文件: {self.lock_path})")
+            logger.error(f"如果确认没有其他进程，请手动删除锁文件: rm -rf {self.lock_path}")
+            return False
+
+    def release_lock(self):
+        """释放导出锁"""
+        if self.lock_file:
+            try:
+                fcntl.flock(self.lock_file.fileno(), fcntl.LOCK_UN)
+                self.lock_file.close()
+                if self.lock_path.exists():
+                    self.lock_path.unlink()
+                logger.info("已释放导出锁")
+            except (OSError, IOError):
+                pass
+
+    def init_state_file(self):
+        """初始化状态文件"""
+        STATE_FILE_DIR.mkdir(parents=True, exist_ok=True)
+
+        if not STATE_FILE.exists():
+            logger.info(f"创建状态文件: {STATE_FILE}")
+            STATE_FILE.touch()
+
+        # 验证状态文件格式
+        if STATE_FILE.stat().st_size > 0:
+            try:
+                with open(STATE_FILE, 'r') as f:
+                    for line in f:
+                        line = line.strip()
+                        if line and not re.match(r'^\d+\|\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}|\d+|[A-Z]+$', line):
+                            logger.warning("状态文件格式不正确，将备份后重新创建")
+                            backup_file = STATE_FILE.with_suffix(f'.backup.{int(time.time())}')
+                            shutil.move(STATE_FILE, backup_file)
+                            STATE_FILE.touch()
+                            break
+            except Exception as e:
+                logger.warning(f"验证状态文件时出错: {e}")
+
+    def get_last_export_time(self, tenant_id: str) -> str:
+        """获取租户的上次导出时间"""
+        if not STATE_FILE.exists():
+            return ""
+
+        try:
+            with open(STATE_FILE, 'r') as f:
+                for line in f:
+                    line = line.strip()
+                    if line.startswith(f"{tenant_id}|"):
+                        return line.split('|')[1]
+        except Exception as e:
+            logger.error(f"读取状态文件失败: {e}")
+
+        return ""
+
+    def update_export_time(self, tenant_id: str, export_time: str, record_count: int, status: str = "SUCCESS"):
+        """更新租户的导出时间"""
+        if hasattr(self, 'dry_run') and self.dry_run:
+            logger.info(f"[DRY RUN] 将更新状态: 租户{tenant_id} -> {export_time} ({record_count}条)")
+            return
+
+        temp_file = STATE_FILE.with_suffix('.tmp')
+
+        try:
+            # 移除旧记录并添加新记录
+            if STATE_FILE.exists():
+                with open(STATE_FILE, 'r') as f:
+                    lines = f.readlines()
+
+                with open(temp_file, 'w') as f:
+                    for line in lines:
+                        if not line.strip().startswith(f"{tenant_id}|"):
+                            f.write(line)
+
+            new_line = f"{tenant_id}|{export_time}|{record_count}|{status}\n"
+            with open(temp_file, 'a') as f:
+                f.write(new_line)
+
+            # 原子替换
+            shutil.move(temp_file, STATE_FILE)
+
+        except Exception as e:
+            logger.error(f"更新状态文件失败: {e}")
+            if temp_file.exists():
+                temp_file.unlink()
+
+    def backup_state_file(self):
+        """备份状态文件"""
+        if STATE_FILE.exists() and STATE_FILE.stat().st_size > 0:
+            backup_file = STATE_FILE.with_suffix(f'.backup.{int(time.time())}')
+            shutil.copy2(STATE_FILE, backup_file)
+            logger.info(f"状态文件已备份到: {backup_file}")
+
+    def calculate_export_boundary(self) -> str:
+        """计算导出安全边界时间(当前时间 - 5分钟)"""
+        boundary_time = datetime.now(timezone.utc) - timedelta(seconds=TIME_BUFFER_SECONDS)
+        return boundary_time.strftime('%Y-%m-%d %H:%M:%S')
+
 
 class DatabaseConnection:
     """数据库连接管理"""
@@ -71,11 +200,12 @@ class InvoiceExporter:
     """发票数据导出器"""
 
     def __init__(self, output_dir: str = None, num_threads: int = 4,
-                 compress: bool = False, dry_run: bool = False):
+                 compress: bool = False, dry_run: bool = False, incremental: bool = False):
         self.output_dir = Path(output_dir or OUTPUT_BASE_DIR)
         self.num_threads = num_threads
         self.compress = compress
         self.dry_run = dry_run
+        self.incremental = incremental
         self.stats = {
             'total_groups': 0,
             'total_invoices': 0,
@@ -85,6 +215,8 @@ class InvoiceExporter:
             'end_time': None
         }
         self.lock = threading.Lock()
+        self.state_manager = StateManager()
+        self.state_manager.dry_run = dry_run
 
     def validate_json_field(self, json_str: str) -> bool:
         """验证JSON字段格式"""
@@ -144,27 +276,51 @@ class InvoiceExporter:
         self.stats['total_groups'] = len(formatted_results)
         return formatted_results
 
-    def get_invoices_for_group(self, connection, tenant_id: str, country: str) -> List[Dict]:
+    def get_invoices_for_group(self, connection, tenant_id: str, country: str,
+                               last_time: str = None, boundary_time: str = None) -> List[Dict]:
         """获取指定租户-国家的发票数据"""
         country_filter = f"fcountry = '{country}'" if country != 'UNKNOWN' else "fcountry IS NULL OR fcountry = ''"
 
-        sql = f"""
-            SELECT
-                finvoice_no,
-                DATE_FORMAT(fissue_date, '%Y%m%d') as issue_date_formatted,
-                fext_field,
-                fupdate_time
-            FROM t_invoice
-            WHERE fissue_status = 3
-              AND ftenant_id = '{tenant_id}'
-              AND ({country_filter})
-              AND fext_field IS NOT NULL
-              AND LENGTH(fext_field) > 0
-              AND finvoice_no IS NOT NULL
-              AND LENGTH(finvoice_no) > 0
-              AND fissue_date IS NOT NULL
-            ORDER BY fissue_date, finvoice_no
-        """
+        if self.incremental and last_time and boundary_time:
+            # 增量模式: 添加时间过滤
+            sql = f"""
+                SELECT
+                    finvoice_no,
+                    DATE_FORMAT(fissue_date, '%Y%m%d') as issue_date_formatted,
+                    fext_field,
+                    fupdate_time
+                FROM t_invoice
+                WHERE fissue_status = 3
+                  AND ftenant_id = '{tenant_id}'
+                  AND ({country_filter})
+                  AND fext_field IS NOT NULL
+                  AND LENGTH(fext_field) > 0
+                  AND finvoice_no IS NOT NULL
+                  AND LENGTH(finvoice_no) > 0
+                  AND fissue_date IS NOT NULL
+                  AND fupdate_time > '{last_time}'
+                  AND fupdate_time <= '{boundary_time}'
+                ORDER BY fupdate_time ASC, finvoice_no ASC
+            """
+        else:
+            # 全量模式: 原有查询
+            sql = f"""
+                SELECT
+                    finvoice_no,
+                    DATE_FORMAT(fissue_date, '%Y%m%d') as issue_date_formatted,
+                    fext_field,
+                    fupdate_time
+                FROM t_invoice
+                WHERE fissue_status = 3
+                  AND ftenant_id = '{tenant_id}'
+                  AND ({country_filter})
+                  AND fext_field IS NOT NULL
+                  AND LENGTH(fext_field) > 0
+                  AND finvoice_no IS NOT NULL
+                  AND LENGTH(finvoice_no) > 0
+                  AND fissue_date IS NOT NULL
+                ORDER BY fissue_date, finvoice_no
+            """
 
         with connection.cursor() as cursor:
             cursor.execute(sql)
@@ -243,16 +399,21 @@ class InvoiceExporter:
         return successful_count
 
     def process_group(self, connection, tenant_id: str, country: str, invoice_count: int,
-                     progress_bar: tqdm = None) -> Dict[str, Any]:
+                     progress_bar: tqdm = None, last_time: str = None, boundary_time: str = None) -> Dict[str, Any]:
         """处理单个租户-国家分组"""
         thread_name = threading.current_thread().name
         start_time = time.time()
 
         try:
-            logger.info(f"[{thread_name}] 开始处理租户 {tenant_id} 国家 {country} ({invoice_count} 条记录)")
+            if self.incremental:
+                time_range = f" ({last_time} -> {boundary_time})"
+            else:
+                time_range = ""
+
+            logger.info(f"[{thread_name}] 开始处理租户 {tenant_id} 国家 {country}{time_range}")
 
             # 获取发票数据
-            invoices = self.get_invoices_for_group(connection, tenant_id, country)
+            invoices = self.get_invoices_for_group(connection, tenant_id, country, last_time, boundary_time)
 
             if not invoices:
                 logger.warning(f"[{thread_name}] 租户 {tenant_id} 国家 {country} 没有有效数据")
@@ -296,6 +457,105 @@ class InvoiceExporter:
         finally:
             if progress_bar:
                 progress_bar.update(1)
+
+    def export_incremental(self, limit_groups: int = None) -> bool:
+        """增量导出所有发票数据"""
+        logger.info("=" * 80)
+        logger.info("发票增量导出开始")
+        logger.info(f"输出目录: {self.output_dir}")
+        logger.info(f"线程数: {self.num_threads}")
+        logger.info(f"压缩输出: {self.compress}")
+        logger.info(f"试运行模式: {self.dry_run}")
+        logger.info("=" * 80)
+
+        # 初始化状态文件和获取锁
+        self.state_manager.init_state_file()
+
+        with self.state_manager:
+            self.stats['start_time'] = time.time()
+
+            try:
+                with DatabaseConnection(DB_CONFIG) as conn:
+                    # 计算安全边界时间
+                    export_boundary = self.state_manager.calculate_export_boundary()
+                    logger.info(f"导出时间边界: {export_boundary}")
+
+                    # 获取所有租户列表
+                    logger.info("获取所有租户列表...")
+                    all_groups = self.get_tenant_country_groups(conn)
+
+                    if limit_groups:
+                        all_groups = all_groups[:limit_groups]
+                        logger.info(f"限制处理前 {limit_groups} 个分组")
+
+                    total_export_count = 0
+                    total_tenant_count = 0
+
+                    # 获取唯一租户列表
+                    unique_tenants = sorted(set(group[0] for group in all_groups))
+
+                    # 逐租户处理
+                    for tenant_id in unique_tenants:
+                        total_tenant_count += 1
+
+                        # 获取上次导出时间
+                        last_time = self.state_manager.get_last_export_time(tenant_id)
+                        if not last_time:
+                            last_time = "1970-01-01 00:00:00"
+                            logger.info(f"租户 {tenant_id}: 首次导出，基线时间: {last_time}")
+
+                        logger.info(f"租户 {tenant_id}: {last_time} -> {export_boundary}")
+
+                        # 处理租户下的所有国家
+                        tenant_groups = [(tid, cntry, count) for tid, cntry, count in all_groups
+                                         if tid == tenant_id]
+
+                        tenant_export_count = 0
+                        tenant_error_count = 0
+                        tenant_start_time = time.time()
+
+                        for tid, cntry, count in tenant_groups:
+                            # 处理每个国家分组
+                            result = self.process_group(
+                                conn, tid, cntry, count,
+                                progress_bar=None, last_time=last_time, boundary_time=export_boundary
+                            )
+
+                            if result['status'] == 'success':
+                                tenant_export_count += result['processed']
+                            else:
+                                tenant_error_count += 1
+
+                        # 更新状态(即使记录数为0也要更新，表示已同步到边界时间)
+                        self.state_manager.update_export_time(tenant_id, export_boundary, tenant_export_count, "SUCCESS")
+
+                        if tenant_export_count > 0:
+                            logger.info(f"租户 {tenant_id}: 导出 {tenant_export_count} 条新记录 (耗时: {time.time() - tenant_start_time:.2f}s)")
+                        else:
+                            logger.info(f"租户 {tenant_id}: 无新增数据")
+
+                        total_export_count += tenant_export_count
+
+                    # 输出统计信息
+                    self.stats['end_time'] = time.time()
+                    total_duration = self.stats['end_time'] - self.stats['start_time']
+                    self.stats['total_invoices'] = total_export_count
+
+                    logger.info("=" * 80)
+                    logger.info("增量导出完成!")
+                    logger.info("=" * 80)
+                    logger.info(f"处理租户数: {total_tenant_count}")
+                    logger.info(f"成功导出: {total_export_count} 条新记录")
+                    logger.info(f"总耗时: {total_duration:.2f} 秒")
+                    logger.info(f"输出目录: {self.output_dir}")
+                    logger.info(f"状态文件: {STATE_FILE}")
+                    logger.info("=" * 80)
+
+                    return True
+
+            except Exception as e:
+                logger.error(f"增量导出失败: {e}", exc_info=True)
+                return False
 
     def export_all(self, limit_groups: int = None) -> bool:
         """导出所有发票数据"""
@@ -385,6 +645,7 @@ def main():
     parser.add_argument('--dry-run', '-d', action='store_true', help='试运行模式')
     parser.add_argument('--limit', '-l', type=int, help='限制处理的分组数量（用于测试）')
     parser.add_argument('--verbose', '-v', action='store_true', help='详细日志')
+    parser.add_argument('--incremental', '-i', action='store_true', help='增量导出模式')
 
     args = parser.parse_args()
 
@@ -395,10 +656,20 @@ def main():
         output_dir=args.output_dir,
         num_threads=args.threads,
         compress=args.compress,
-        dry_run=args.dry_run
+        dry_run=args.dry_run,
+        incremental=args.incremental
     )
 
-    success = exporter.export_all(limit_groups=args.limit)
+    # 备份状态文件
+    if args.incremental and not args.dry_run:
+        exporter.state_manager.backup_state_file()
+
+    # 根据模式执行
+    if args.incremental:
+        success = exporter.export_incremental(limit_groups=args.limit)
+    else:
+        success = exporter.export_all(limit_groups=args.limit)
+
     sys.exit(0 if success else 1)
 
 
