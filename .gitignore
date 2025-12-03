@@ -34,3 +34,4 @@ backup/
 # Temporary files
 *.tmp
 *.temp
+*.backup
