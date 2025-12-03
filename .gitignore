@@ -29,6 +29,7 @@ Thumbs.db
 test-results/
 .playwright-mcp/
 *.log
+backup/
 
 # Temporary files
 *.tmp
