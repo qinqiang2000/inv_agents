@@ -245,18 +245,15 @@ def export_global_invoice_types(connection) -> bool:
             JSON_OBJECT(
                 'id', fid,
                 'invoiceCode', finvoice_code,
-                'ublCode', fubl_code,
                 'descriptionEn', IFNULL(fdescription_en, ''),
                 'descriptionCn', IFNULL(fdescription_cn, ''),
-                'level', flevel,
-                'parentCode', fparent_code,
-                'parentInvoiceCode', fparent_invoice_code,
                 'selfbilled', fselfbilled,
-                'submissionType', fsubmission_type,
                 'taxType', ftax_type,
                 'countryName', fcountry_name,
                 'countryCode', fcountry_code,
-                'active', factive
+                'active', factive,
+                'createTime', fcreate_time,
+                'updateTime', fupdate_time
             )
         ) AS json_data
         FROM t_invoice_type
