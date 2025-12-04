@@ -7,7 +7,7 @@ python-dotenv>=1.0.0
 
 # Claude Agent SDK
 anyio>=4.0.0
-claude-agent-sdk>=0.1.10
+claude-agent-sdk
 
 # Database (for context data access if needed)
 pymysql>=1.0.0
