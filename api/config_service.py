@@ -8,7 +8,8 @@ from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
-DEAULT_CONFIG = "claude-router"
+DEAULT_CONFIG = "glm"
+# DEAULT_CONFIG = "claude-router"
 
 @dataclass
 class ModelConfig:

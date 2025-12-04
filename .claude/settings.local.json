@@ -14,7 +14,8 @@
       "Bash(./run.sh:*)",
       "Bash(head:*)",
       "Bash(timeout:*)",
-      "Bash(rm:*)"
+      "Bash(rm:*)",
+      "Bash(tree:*)"
     ],
     "deny": [],
     "ask": []
