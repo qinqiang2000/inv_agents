@@ -668,9 +668,9 @@
         function newChat() {
             currentSessionId = null;
             currentTodos = [];  // Reset todos for new chat
-            savedContext = null;  // Clear context for new chat
+            // savedContext = null;  // Keep context for new chat (commented out)
             updateSessionDisplay();
-            updateContextButton();  // Reset context button style
+            // updateContextButton();  // Keep context button style (commented out)
             chatContainer.innerHTML = `
                 <div style="text-align: center; color: #999; padding: 40px;">
                     输入您的问题开始对话...

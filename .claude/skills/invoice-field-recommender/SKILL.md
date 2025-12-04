@@ -276,21 +276,12 @@ if ".." in file_path:
 
 ```json
 {
-  "recommended": "<value>",
-  "reason": "<explanation>",
+  "recommended": "任何有效的 UBL 字段值 | 目标字段的推荐值。必须是单个特定值。",
+  "reason": "推荐此值的原因。",
   "source": "<historical|country_basic_data|global_basic_data|websearch>",
   "confidence": "<high|medium|low>"
 }
 ```
-
-### 字段说明
-
-| 字段 | 类型 | 必需 | 允许的值 | 描述 |
-|------|------|------|---------|------|
-| `recommended` | string | ✅ 是 | 任何有效的 UBL 字段值 | 目标字段的推荐值。必须是单个特定值。 |
-| `reason` | string | ✅ 是 | 自由文本（1-3 句） | 推荐此值的原因。 |
-| `source` | string | ✅ 是 | `"historical"` \| `"country_basic_data"` \| `"global_basic_data"` \| `"websearch"` | 产生此推荤的步骤。 |
-| `confidence` | string | ⚠️ 条件 | `"high"` \| `"medium"` \| `"low"` | 当来源为 `"historical"` 时必需。 |
 
 ### 验证检查清单
 
@@ -358,4 +349,4 @@ if ".." in file_path:
 | 终止即跳转 | 检查点决策为"终止"时，立即跳转到输出验证 |
 | 单一答案 | 返回一个最佳答案，不混合多个步骤的结果 |
 | 决策树逻辑 | 每个检查点是条件分支，不是顺序执行 |
-| 验证必须通过 | 输出验证通过后才能返回结果 |
+| 验证必须通过 | 输出验证通过后：有json格式后才能返回结果 |

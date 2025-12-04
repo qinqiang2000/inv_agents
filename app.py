@@ -4,22 +4,25 @@ import logging
 import os
 from pathlib import Path
 from dotenv import load_dotenv
-from fastapi import FastAPI
 
 # Load environment variables from .env.prod
 load_dotenv('.env.prod')
-from fastapi.middleware.cors import CORSMiddleware
-from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse
-from api.endpoints import router
 
-# Configure logging with environment variable support
+# Configure logging BEFORE importing any modules that use logger
 log_level = os.getenv('LOG_LEVEL', 'DEBUG')
 logging.basicConfig(
     level=getattr(logging, log_level.upper()),
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger(__name__)
+
+# Import after logging is configured
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
+from api.endpoints import router
+from api.admin_endpoints import admin_router
 
 # Create FastAPI app
 app = FastAPI(
@@ -42,8 +45,9 @@ static_path = Path(__file__).parent / "static"
 if static_path.exists():
     app.mount("/static", StaticFiles(directory=str(static_path)), name="static")
 
-# Include API router
+# Include API routers
 app.include_router(router)
+app.include_router(admin_router)
 
 
 @app.get("/")
@@ -58,10 +62,15 @@ async def root():
 @app.on_event("startup")
 async def startup_event():
     """Application startup event."""
+    from api.config_service import config_manager
+
     logger.info("Starting Invoice Field Recommender Agent")
     logger.info(f"Working directory: {Path.cwd()}")
-    logger.info(f"ANTHROPIC_BASE_URL: {os.getenv('ANTHROPIC_BASE_URL')}")
-    logger.info(f"ANTHROPIC_MODEL: {os.getenv('ANTHROPIC_MODEL')}")
+
+    current_config = config_manager.get_current_config()
+    logger.info(f"Active model config: {config_manager.get_current_config_name()}")
+    logger.info(f"  - Base URL: {current_config.base_url}")
+    logger.info(f"  - Model: {current_config.model or 'Default'}")
 
 
 @app.on_event("shutdown")

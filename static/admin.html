@@ -1,0 +1,438 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Model Configuration - Admin</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+            background: #f5f5f5;
+            padding: 20px;
+            min-height: 100vh;
+        }
+
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+        }
+
+        .header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 24px 30px;
+            border-radius: 12px 12px 0 0;
+        }
+
+        .header h1 {
+            font-size: 24px;
+            margin-bottom: 8px;
+        }
+
+        .header p {
+            font-size: 14px;
+            opacity: 0.9;
+        }
+
+        .nav-bar {
+            background: #fff;
+            padding: 12px 24px;
+            border-bottom: 1px solid #e0e0e0;
+            display: flex;
+            gap: 16px;
+        }
+
+        .nav-bar a {
+            color: #667eea;
+            text-decoration: none;
+            font-size: 14px;
+        }
+
+        .nav-bar a:hover {
+            text-decoration: underline;
+        }
+
+        .content {
+            background: white;
+            border-radius: 0 0 12px 12px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+            padding: 24px;
+        }
+
+        .section {
+            margin-bottom: 24px;
+        }
+
+        .section-title {
+            font-size: 16px;
+            font-weight: 600;
+            color: #333;
+            margin-bottom: 16px;
+            padding-bottom: 8px;
+            border-bottom: 2px solid #667eea;
+        }
+
+        .config-cards {
+            display: grid;
+            gap: 16px;
+        }
+
+        .config-card {
+            border: 2px solid #e0e0e0;
+            border-radius: 8px;
+            padding: 16px;
+            cursor: pointer;
+            transition: all 0.2s;
+            position: relative;
+        }
+
+        .config-card:hover {
+            border-color: #667eea;
+            box-shadow: 0 2px 8px rgba(102, 126, 234, 0.2);
+        }
+
+        .config-card.active {
+            border-color: #4caf50;
+            background: #f1f8e9;
+        }
+
+        .config-card.switching {
+            opacity: 0.7;
+            pointer-events: none;
+        }
+
+        .config-name {
+            font-size: 18px;
+            font-weight: 600;
+            color: #333;
+            margin-bottom: 4px;
+        }
+
+        .config-description {
+            font-size: 14px;
+            color: #666;
+            margin-bottom: 8px;
+        }
+
+        .config-url {
+            font-size: 12px;
+            font-family: monospace;
+            color: #999;
+            background: #f5f5f5;
+            padding: 4px 8px;
+            border-radius: 4px;
+            word-break: break-all;
+        }
+
+        .active-badge {
+            position: absolute;
+            top: 12px;
+            right: 12px;
+            background: #4caf50;
+            color: white;
+            font-size: 12px;
+            padding: 4px 8px;
+            border-radius: 4px;
+        }
+
+        .switch-btn {
+            position: absolute;
+            bottom: 12px;
+            right: 12px;
+            background: #667eea;
+            color: white;
+            border: none;
+            padding: 6px 16px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 13px;
+        }
+
+        .switch-btn:hover {
+            background: #5568d3;
+        }
+
+        .switch-btn:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+        }
+
+        .env-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 13px;
+        }
+
+        .env-table th,
+        .env-table td {
+            text-align: left;
+            padding: 10px 12px;
+            border-bottom: 1px solid #eee;
+        }
+
+        .env-table th {
+            background: #f8f9fa;
+            font-weight: 600;
+            color: #555;
+        }
+
+        .env-table td:first-child {
+            font-family: monospace;
+            color: #667eea;
+        }
+
+        .env-table td:last-child {
+            font-family: monospace;
+            color: #333;
+            word-break: break-all;
+        }
+
+        .status-message {
+            padding: 12px 16px;
+            border-radius: 6px;
+            margin-bottom: 16px;
+            display: none;
+        }
+
+        .status-message.success {
+            display: block;
+            background: #e8f5e9;
+            color: #2e7d32;
+            border: 1px solid #a5d6a7;
+        }
+
+        .status-message.error {
+            display: block;
+            background: #ffebee;
+            color: #c62828;
+            border: 1px solid #ef9a9a;
+        }
+
+        .loading-spinner {
+            display: inline-block;
+            width: 14px;
+            height: 14px;
+            border: 2px solid #fff;
+            border-radius: 50%;
+            border-top-color: transparent;
+            animation: spin 0.8s linear infinite;
+            margin-right: 6px;
+            vertical-align: middle;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        .refresh-btn {
+            background: #f5f5f5;
+            border: 1px solid #ddd;
+            padding: 6px 12px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 13px;
+            margin-left: auto;
+        }
+
+        .refresh-btn:hover {
+            background: #e0e0e0;
+        }
+
+        .section-header {
+            display: flex;
+            align-items: center;
+            margin-bottom: 16px;
+            padding-bottom: 8px;
+            border-bottom: 2px solid #667eea;
+        }
+
+        .section-header .section-title {
+            margin: 0;
+            padding: 0;
+            border: none;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>Model Configuration</h1>
+            <p>Configure and switch between different AI model providers</p>
+        </div>
+
+        <div class="nav-bar">
+            <a href="/">Chat UI</a>
+            <a href="/docs">API Docs</a>
+        </div>
+
+        <div class="content">
+            <div id="statusMessage" class="status-message"></div>
+
+            <div class="section">
+                <h2 class="section-title">Available Configurations</h2>
+                <div class="config-cards" id="configCards">
+                    <!-- Config cards will be rendered here -->
+                    <div style="text-align: center; padding: 40px; color: #999;">
+                        Loading configurations...
+                    </div>
+                </div>
+            </div>
+
+            <div class="section">
+                <div class="section-header">
+                    <h2 class="section-title">Current Environment Variables</h2>
+                    <button class="refresh-btn" onclick="loadConfigs()">Refresh</button>
+                </div>
+                <table class="env-table" id="envTable">
+                    <thead>
+                        <tr>
+                            <th>Variable</th>
+                            <th>Value</th>
+                        </tr>
+                    </thead>
+                    <tbody id="envTableBody">
+                        <tr>
+                            <td colspan="2" style="text-align: center; color: #999;">Loading...</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let currentConfig = null;
+
+        async function loadConfigs() {
+            try {
+                const response = await fetch('/admin/api/configs');
+                const data = await response.json();
+
+                currentConfig = data.current_config;
+                renderConfigCards(data.configs, data.current_config);
+                renderEnvTable(data.env_snapshot);
+            } catch (error) {
+                console.error('Failed to load configs:', error);
+                showStatus('error', 'Failed to load configurations: ' + error.message);
+            }
+        }
+
+        function renderConfigCards(configs, activeConfig) {
+            const container = document.getElementById('configCards');
+            container.innerHTML = '';
+
+            configs.forEach(config => {
+                const card = document.createElement('div');
+                card.className = 'config-card' + (config.is_active ? ' active' : '');
+                card.id = 'card-' + config.name;
+
+                card.innerHTML = `
+                    <div class="config-name">${config.name}</div>
+                    <div class="config-description">${config.description}</div>
+                    <div class="config-url">${config.base_url}</div>
+                    ${config.is_active ? '<span class="active-badge">Active</span>' : ''}
+                    ${!config.is_active ? `<button class="switch-btn" onclick="switchConfig('${config.name}')">Switch</button>` : ''}
+                `;
+
+                container.appendChild(card);
+            });
+        }
+
+        function renderEnvTable(envSnapshot) {
+            const tbody = document.getElementById('envTableBody');
+            tbody.innerHTML = '';
+
+            if (!envSnapshot || Object.keys(envSnapshot).length === 0) {
+                tbody.innerHTML = '<tr><td colspan="2" style="text-align: center; color: #999;">No environment variables set</td></tr>';
+                return;
+            }
+
+            // Sort by key name
+            const sortedKeys = Object.keys(envSnapshot).sort();
+
+            sortedKeys.forEach(key => {
+                const row = document.createElement('tr');
+                let displayValue = envSnapshot[key];
+
+                // Mask sensitive values (tokens, keys)
+                if (key.includes('TOKEN') || key.includes('KEY')) {
+                    if (displayValue.length > 20) {
+                        displayValue = displayValue.substring(0, 10) + '...' + displayValue.substring(displayValue.length - 10);
+                    }
+                }
+
+                row.innerHTML = `
+                    <td>${key}</td>
+                    <td>${displayValue}</td>
+                `;
+                tbody.appendChild(row);
+            });
+        }
+
+        async function switchConfig(configName) {
+            const card = document.getElementById('card-' + configName);
+            const btn = card.querySelector('.switch-btn');
+
+            // Add loading state
+            card.classList.add('switching');
+            btn.innerHTML = '<span class="loading-spinner"></span>Switching...';
+            btn.disabled = true;
+
+            try {
+                const response = await fetch('/admin/api/switch', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ config_name: configName })
+                });
+
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                }
+
+                const data = await response.json();
+
+                if (data.success) {
+                    showStatus('success', data.message);
+                    // Reload to reflect changes
+                    await loadConfigs();
+                } else {
+                    throw new Error(data.message || 'Switch failed');
+                }
+            } catch (error) {
+                console.error('Failed to switch config:', error);
+                showStatus('error', 'Failed to switch configuration: ' + error.message);
+
+                // Reset button state
+                card.classList.remove('switching');
+                btn.innerHTML = 'Switch';
+                btn.disabled = false;
+            }
+        }
+
+        function showStatus(type, message) {
+            const statusDiv = document.getElementById('statusMessage');
+            statusDiv.className = 'status-message ' + type;
+            statusDiv.textContent = message;
+
+            // Auto-hide after 5 seconds
+            setTimeout(() => {
+                statusDiv.className = 'status-message';
+            }, 5000);
+        }
+
+        // Load configurations on page load
+        loadConfigs();
+
+        // Auto-refresh every 30 seconds
+        setInterval(loadConfigs, 30000);
+    </script>
+</body>
+</html>
