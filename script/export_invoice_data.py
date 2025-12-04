@@ -200,12 +200,14 @@ class InvoiceExporter:
     """发票数据导出器"""
 
     def __init__(self, output_dir: str = None, num_threads: int = 4,
-                 compress: bool = False, dry_run: bool = False, incremental: bool = False):
+                 compress: bool = False, dry_run: bool = False, incremental: bool = False,
+                 tenant_id: str = None):
         self.output_dir = Path(output_dir or OUTPUT_BASE_DIR)
         self.num_threads = num_threads
         self.compress = compress
         self.dry_run = dry_run
         self.incremental = incremental
+        self.tenant_id = tenant_id
         self.stats = {
             'total_groups': 0,
             'total_invoices': 0,
@@ -241,7 +243,10 @@ class InvoiceExporter:
 
     def get_tenant_country_groups(self, connection) -> List[Tuple[str, str, int]]:
         """获取租户-国家分组信息"""
-        logger.info("获取租户-国家分组信息...")
+        if self.tenant_id:
+            logger.info(f"获取租户 {self.tenant_id} 的国家分组信息...")
+        else:
+            logger.info("获取所有租户-国家分组信息...")
 
         sql = """
             SELECT
@@ -255,6 +260,13 @@ class InvoiceExporter:
               AND finvoice_no IS NOT NULL
               AND LENGTH(finvoice_no) > 0
               AND fissue_date IS NOT NULL
+        """
+
+        # 添加租户过滤条件
+        if self.tenant_id:
+            sql += f"  AND ftenant_id = '{self.tenant_id}'"
+
+        sql += """
             GROUP BY ftenant_id, fcountry
             ORDER BY ftenant_id, fcountry
         """
@@ -272,7 +284,10 @@ class InvoiceExporter:
                 row['invoice_count']
             ))
 
-        logger.info(f"找到 {len(formatted_results)} 个租户-国家分组")
+        if self.tenant_id:
+            logger.info(f"租户 {self.tenant_id} 找到 {len(formatted_results)} 个国家分组")
+        else:
+            logger.info(f"找到 {len(formatted_results)} 个租户-国家分组")
         self.stats['total_groups'] = len(formatted_results)
         return formatted_results
 
@@ -398,7 +413,7 @@ class InvoiceExporter:
 
         return successful_count
 
-    def process_group(self, connection, tenant_id: str, country: str, invoice_count: int,
+    def process_group(self, tenant_id: str, country: str, invoice_count: int,
                      progress_bar: tqdm = None, last_time: str = None, boundary_time: str = None) -> Dict[str, Any]:
         """处理单个租户-国家分组"""
         thread_name = threading.current_thread().name
@@ -412,38 +427,40 @@ class InvoiceExporter:
 
             logger.info(f"[{thread_name}] 开始处理租户 {tenant_id} 国家 {country}{time_range}")
 
-            # 获取发票数据
-            invoices = self.get_invoices_for_group(connection, tenant_id, country, last_time, boundary_time)
+            # 每个线程创建独立的数据库连接
+            with DatabaseConnection(DB_CONFIG) as conn:
+                # 获取发票数据
+                invoices = self.get_invoices_for_group(conn, tenant_id, country, last_time, boundary_time)
 
-            if not invoices:
-                logger.warning(f"[{thread_name}] 租户 {tenant_id} 国家 {country} 没有有效数据")
+                if not invoices:
+                    logger.warning(f"[{thread_name}] 租户 {tenant_id} 国家 {country} 没有有效数据")
+                    return {
+                        'tenant_id': tenant_id,
+                        'country': country,
+                        'status': 'no_data',
+                        'processed': 0,
+                        'duration': time.time() - start_time
+                    }
+
+                # 写入文件
+                successful_count = self.write_invoice_files(tenant_id, country, invoices)
+
+                duration = time.time() - start_time
+                logger.info(f"[{thread_name}] 完成租户 {tenant_id} 国家 {country}: {successful_count}/{len(invoices)} 文件 ({duration:.2f}s)")
+
+                # 更新统计信息
+                with self.lock:
+                    self.stats['total_invoices'] += len(invoices)
+                    self.stats['successful_files'] += successful_count
+
                 return {
                     'tenant_id': tenant_id,
                     'country': country,
-                    'status': 'no_data',
-                    'processed': 0,
-                    'duration': time.time() - start_time
+                    'status': 'success',
+                    'processed': successful_count,
+                    'total': len(invoices),
+                    'duration': duration
                 }
-
-            # 写入文件
-            successful_count = self.write_invoice_files(tenant_id, country, invoices)
-
-            duration = time.time() - start_time
-            logger.info(f"[{thread_name}] 完成租户 {tenant_id} 国家 {country}: {successful_count}/{len(invoices)} 文件 ({duration:.2f}s)")
-
-            # 更新统计信息
-            with self.lock:
-                self.stats['total_invoices'] += len(invoices)
-                self.stats['successful_files'] += successful_count
-
-            return {
-                'tenant_id': tenant_id,
-                'country': country,
-                'status': 'success',
-                'processed': successful_count,
-                'total': len(invoices),
-                'duration': duration
-            }
 
         except Exception as e:
             logger.error(f"[{thread_name}] 处理租户 {tenant_id} 国家 {country} 失败: {e}")
@@ -461,7 +478,10 @@ class InvoiceExporter:
     def export_incremental(self, limit_groups: int = None) -> bool:
         """增量导出所有发票数据"""
         logger.info("=" * 80)
-        logger.info("发票增量导出开始")
+        if self.tenant_id:
+            logger.info(f"发票增量导出开始 - 租户: {self.tenant_id}")
+        else:
+            logger.info("发票增量导出开始")
         logger.info(f"输出目录: {self.output_dir}")
         logger.info(f"线程数: {self.num_threads}")
         logger.info(f"压缩输出: {self.compress}")
@@ -517,7 +537,7 @@ class InvoiceExporter:
                         for tid, cntry, count in tenant_groups:
                             # 处理每个国家分组
                             result = self.process_group(
-                                conn, tid, cntry, count,
+                                tid, cntry, count,
                                 progress_bar=None, last_time=last_time, boundary_time=export_boundary
                             )
 
@@ -560,7 +580,10 @@ class InvoiceExporter:
     def export_all(self, limit_groups: int = None) -> bool:
         """导出所有发票数据"""
         logger.info("=" * 80)
-        logger.info("发票数据导出开始 (高性能Python版本)")
+        if self.tenant_id:
+            logger.info(f"发票数据导出开始 (高性能Python版本) - 租户: {self.tenant_id}")
+        else:
+            logger.info("发票数据导出开始 (高性能Python版本)")
         logger.info(f"输出目录: {self.output_dir}")
         logger.info(f"线程数: {self.num_threads}")
         logger.info(f"压缩输出: {self.compress}")
@@ -570,66 +593,65 @@ class InvoiceExporter:
         self.stats['start_time'] = time.time()
 
         try:
+            # 先获取所有分组（使用临时连接）
             with DatabaseConnection(DB_CONFIG) as conn:
-                # 获取所有分组
                 groups = self.get_tenant_country_groups(conn)
 
-                if limit_groups:
-                    groups = groups[:limit_groups]
-                    logger.info(f"限制处理前 {limit_groups} 个分组")
+            if limit_groups:
+                groups = groups[:limit_groups]
+                logger.info(f"限制处理前 {limit_groups} 个分组")
 
-                # 使用多线程处理
-                results = []
-                with ThreadPoolExecutor(max_workers=self.num_threads) as executor:
-                    # 创建进度条
-                    with tqdm(total=len(groups), desc="处理分组", unit="group") as progress_bar:
-                        # 提交所有任务
-                        future_to_group = {
-                            executor.submit(
-                                self.process_group,
-                                conn,
-                                tenant_id,
-                                country,
-                                invoice_count,
-                                progress_bar
-                            ): (tenant_id, country)
-                            for tenant_id, country, invoice_count in groups
-                        }
+            # 使用多线程处理（每个线程创建自己的连接）
+            results = []
+            with ThreadPoolExecutor(max_workers=self.num_threads) as executor:
+                # 创建进度条
+                with tqdm(total=len(groups), desc="处理分组", unit="group") as progress_bar:
+                    # 提交所有任务
+                    future_to_group = {
+                        executor.submit(
+                            self.process_group,
+                            tenant_id,
+                            country,
+                            invoice_count,
+                            progress_bar
+                        ): (tenant_id, country)
+                        for tenant_id, country, invoice_count in groups
+                    }
 
-                        # 收集结果
-                        for future in as_completed(future_to_group):
-                            result = future.result()
-                            results.append(result)
+                    # 收集结果
+                    for future in as_completed(future_to_group):
+                        result = future.result()
+                        results.append(result)
 
-                # 统计结果
-                successful_groups = sum(1 for r in results if r['status'] == 'success')
-                failed_groups = sum(1 for r in results if r['status'] == 'error')
-                no_data_groups = sum(1 for r in results if r['status'] == 'no_data')
+            # 统计结果
+            successful_groups = sum(1 for r in results if r['status'] == 'success')
+            failed_groups = sum(1 for r in results if r['status'] == 'error')
+            no_data_groups = sum(1 for r in results if r['status'] == 'no_data')
 
-                self.stats['end_time'] = time.time()
-                total_duration = self.stats['end_time'] - self.stats['start_time']
+            self.stats['end_time'] = time.time()
+            total_duration = self.stats['end_time'] - self.stats['start_time']
 
-                # 输出统计信息
-                logger.info("=" * 80)
-                logger.info("导出完成!")
-                logger.info("=" * 80)
-                logger.info(f"总分组数: {len(groups)}")
-                logger.info(f"成功分组: {successful_groups}")
-                logger.info(f"失败分组: {failed_groups}")
-                logger.info(f"无数据分组: {no_data_groups}")
-                logger.info(f"总发票数: {self.stats['total_invoices']}")
-                logger.info(f"成功文件: {self.stats['successful_files']}")
-                logger.info(f"失败文件: {self.stats['failed_files']}")
-                logger.info(f"总耗时: {total_duration:.2f} 秒")
+            # 输出统计信息
+            logger.info("=" * 80)
+            logger.info("导出完成!")
+            logger.info("=" * 80)
+            logger.info(f"总分组数: {len(groups)}")
+            logger.info(f"成功分组: {successful_groups}")
+            logger.info(f"失败分组: {failed_groups}")
+            logger.info(f"无数据分组: {no_data_groups}")
+            logger.info(f"总发票数: {self.stats['total_invoices']}")
+            logger.info(f"成功文件: {self.stats['successful_files']}")
+            logger.info(f"失败文件: {self.stats['failed_files']}")
+            logger.info(f"总耗时: {total_duration:.2f} 秒")
 
-                if self.stats['total_invoices'] > 0:
-                    avg_time = total_duration / self.stats['total_invoices']
-                    logger.info(f"平均每张发票处理时间: {avg_time:.3f} 秒")
+            if self.stats['total_invoices'] > 0:
+                avg_time = total_duration / self.stats['total_invoices']
+                logger.info(f"平均每张发票处理时间: {avg_time:.3f} 秒")
 
-                logger.info(f"输出目录: {self.output_dir}")
-                logger.info("=" * 80)
+            logger.info(f"输出目录: {self.output_dir}")
+            logger.info("=" * 80)
 
-                return failed_groups == 0
+            return failed_groups == 0
 
         except Exception as e:
             logger.error(f"导出失败: {e}", exc_info=True)
@@ -646,6 +668,7 @@ def main():
     parser.add_argument('--limit', '-l', type=int, help='限制处理的分组数量（用于测试）')
     parser.add_argument('--verbose', '-v', action='store_true', help='详细日志')
     parser.add_argument('--incremental', '-i', action='store_true', help='增量导出模式')
+    parser.add_argument('--tid', type=str, help='指定租户ID进行导出')
 
     args = parser.parse_args()
 
@@ -657,7 +680,8 @@ def main():
         num_threads=args.threads,
         compress=args.compress,
         dry_run=args.dry_run,
-        incremental=args.incremental
+        incremental=args.incremental,
+        tenant_id=args.tid
     )
 
     # 备份状态文件
