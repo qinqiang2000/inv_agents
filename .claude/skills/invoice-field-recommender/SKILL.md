@@ -1,211 +1,154 @@
 ---
 name: invoice-field-recommender
-description: Provides intelligent field value recommendations for UBL invoices by analyzing historical invoice data and master data. Supports tenant isolation and progressive fallback strategy.
+description: 通过分析历史发票数据和主数据为 UBL 发票提供智能字段值推荐。支持租户隔离和渐进式回退策略。
 ---
 
-# Invoice Field Recommender
+# 发票字段推荐器
 
-## Overview
+## 概述
 
-This skill provides intelligent field value recommendations for UBL 2.1 invoice generation by analyzing historical successful invoicing records and master data in the `/context` directory.
+该技能通过分析 `/context` 目录中的历史成功开票记录和主数据，为 UBL 2.1 发票生成提供智能字段值推荐。
 
-## When to Use This Skill
+## 何时使用此技能
 
-Use this skill when users provide:
-- **Tenant ID** (e.g., `1`, `10`, `89`)
-- **Target field name** (e.g., `unitCode`, `TaxCategory`, `PaymentMeans`)
-- **Invoice file path** - Path to pending invoice file in `./context/pending-invoices/{tenantId}/`
+当用户提供以下信息时使用此技能：
+- **租户 ID**（例如 `1`、`10`、`89`）
+- **目标字段名称**（例如 `unitCode`、`TaxCategory`、`PaymentMeans`）
+- **发票文件路径** - `./context/pending-invoices/{tenantId}/` 中待处理发票文件的路径
 
-## Input Parameters
+## 输入参数
 
-### Required Parameters
+### 必需参数
 
-| Parameter | Type | Description | Example |
-|-----------|------|-------------|---------|
-| `tenantId` | String | Tenant identifier (numeric) | `"1"`, `"10"`, `"89"` |
-| `targetField` | String | UBL field name to recommend | `"unitCode"`, `"TaxCategory"`, `"PaymentMeans"` |
-| `invoiceFilePath` | String | Path to pending invoice file | `"./context/pending-invoices/1/order-2024-001.xml"` |
+| 参数 | 类型 | 描述 | 示例 |
+|------|------|------|------|
+| `tenantId` | String | 租户标识符（数字） | `"1"`、`"10"`、`"89"` |
+| `targetField` | String | 要推荐的 UBL 字段名称 | `"unitCode"`、`"TaxCategory"`、`"PaymentMeans"` |
+| `invoiceFilePath` | String | 待处理发票文件的路径 | `"./context/pending-invoices/1/order-2024-001.xml"` |
 
-### Input Validation
+### 输入验证
 
-Before starting the recommendation workflow, validate all required inputs:
-1. **Check tenantId**: Must exist, be non-empty, and be a numeric string
-2. **Check targetField**: Must exist, be non-empty, and be a recognized UBL field name
-3. **Check invoiceFilePath**: Must exist, start with `./context/pending-invoices/{tenantId}/`, and file must exist
+在开始推荐工作流之前，验证所有必需的输入：
+1. **检查 tenantId**：必须存在、非空且为数字字符串
+2. **检查 targetField**：必须存在、非空且为公认的 UBL 字段名称
+3. **检查 invoiceFilePath**：必须存在、以 `./context/pending-invoices/{tenantId}/` 开头，且文件必须存在
 
-### Error Response Format
+## 安全性和租户隔离
 
-```json
-{
-  "error": "ERROR_CODE",
-  "message": "English error message",
-  "missing_parameters": ["parameter1", "parameter2"]
-}
-```
+### 关键安全规则
 
-## Security and Tenant Isolation
+1. **租户 ID 是强制性的** - 每个请求都必须包含有效的 tenantId
+2. **待处理发票访问限制** - 仅从 `./context/pending-invoices/{tenantId}/` 读取
+3. **历史发票搜索限制** - 仅在 `./context/invoices/{tenantId}/{countryCode}/` 内搜索
+4. **路径验证** - 拒绝包含 `..` 的任何路径（路径遍历）
+5. **基础数据访问** - `./context/basic-data/` 在所有租户间共享
 
-### Critical Security Rules
-
-1. **Tenant ID is mandatory** - Every request must include a valid tenantId
-2. **Pending invoice access restriction** - Only read from `./context/pending-invoices/{tenantId}/`
-3. **Historical invoice search restriction** - Only search within `./context/invoices/{tenantId}/{countryCode}/`
-4. **Path validation** - Reject any paths containing `..` (path traversal)
-5. **Basic data access** - `./context/basic-data/` is shared across all tenants
-
-### Path Validation Example
+### 路径验证示例
 
 ```python
-# Before reading pending invoice file:
+# 读取待处理发票文件之前：
 expected_pending_prefix = f"./context/pending-invoices/{tenant_id}/"
 if not invoice_file_path.startswith(expected_pending_prefix):
-    raise SecurityError("ACCESS_DENIED: Cross-tenant pending invoice access blocked")
+    raise SecurityError("ACCESS_DENIED: 跨租户待处理发票访问被阻止")
 
-# Before reading historical invoice file:
+# 读取历史发票文件之前：
 expected_history_prefix = f"./context/invoices/{tenant_id}/"
 if not file_path.startswith(expected_history_prefix):
-    raise SecurityError("ACCESS_DENIED: Cross-tenant access blocked")
+    raise SecurityError("ACCESS_DENIED: 跨租户访问被阻止")
 
 if ".." in file_path:
-    raise SecurityError("Path traversal detected")
+    raise SecurityError("检测到路径遍历")
 ```
 
-## Field Dependencies
+## 字段依赖关系
 
-Extract relevant dependency data from invoiceData based on target field:
+根据目标字段从 invoiceData 中提取相关依赖数据：
 
-| Target Field | Dependency Paths | Matching Context |
-|--------------|------------------|------------------|
-| `unitCode` | `InvoiceLine[].Item.Name`, `InvoiceLine[].Item.Description` | Product type determines unit |
-| `TaxCategory.ID` | `InvoiceLine[].Item.Name`, `InvoiceLine[].Item.Description` | Tax treatment by product type |
-| `PaymentMeansCode` | `AccountingCustomerParty`, `InvoiceTypeCode`, `LegalMonetaryTotal.PayableAmount` | Transaction context |
-| `DocumentCurrencyCode` | `AccountingSupplierParty.Party.PostalAddress.Country` | Default currency by country |
+| 目标字段 | 依赖路径 | 匹配上下文 |
+|---------|---------|----------|
+| `unitCode` | `InvoiceLine[].Item.Name`、`InvoiceLine[].Item.Description` | 产品类型决定单位 |
+| `TaxCategory.ID` | `InvoiceLine[].Item.Name`、`InvoiceLine[].Item.Description` | 按产品类型的税务处理 |
+| `PaymentMeansCode` | `AccountingCustomerParty`、`InvoiceTypeCode`、`LegalMonetaryTotal.PayableAmount` | 交易上下文 |
+| `DocumentCurrencyCode` | `AccountingSupplierParty.Party.PostalAddress.Country` | 按国家的默认货币 |
 
-## Recommendation Workflow
+---
 
-### Core Principle
+## 执行状态输出规范
 
-All recommendations must be based on **semantic similarity**, not simple string equality matching.
+🚨 **每个检查点必须输出以下格式的状态** 🚨
 
-### Progressive Lookup Strategy
+> **📍 检查点 {N}：{检查点名称}**
+> - 结果：{成功/无匹配/文件不存在/文件存在}
+> - 决策：{🛑 终止 | ➡️ 继续}
+> - 原因：{一句话解释}
+> - 下一步：{跳转到输出验证 | 进入步骤 N}
 
-Historical Data → Country-Specific → Global → WebSearch
+---
 
-```
-┌─────────────────────────────────────────────────────────────┐
-│                    Input Validation                         │
-│ - Validate tenantId, targetField, invoiceData, country code │
-│ - Extract dependency data based on targetField              │
-└─────────────────────────────────────────────────────────────┘
-                              │
-                              ▼
-┌─────────────────────────────────────────────────────────────┐
-│              Step 1: Historical Invoice Search              │
-│ Path: ./context/invoices/{tenantId}/{countryCode}/          │
-│ - Security: Only search within tenant directory!            │
-│ - Find semantically similar invoices                        │
-│ - If 90%+ confidence match found → Return and STOP          │
-└─────────────────────────────────────────────────────────────┘
-                              │
-                  (No high confidence match)
-                              ▼
-┌─────────────────────────────────────────────────────────────┐
-│      Step 2: Country-Specific Basic Data (Terminal Step)    │
-│ Path: ./context/basic-data/codes/{codeType}/{country}.json  │
-│ - Load all candidate values for this field type             │
-│ - Perform semantic matching with dependency data            │
-│ - 🚨 If file exists → Select best match → Return and STOP   │
-└─────────────────────────────────────────────────────────────┘
-                              │
-              (Country file exists → Return immediately and STOP)
-                              │
-              (No country-specific data file)
-                              ▼
-┌─────────────────────────────────────────────────────────────┐
-│              Step 3: Global Basic Data                      │
-│ Path: ./context/basic-data/global/*.json                    │
-│       ./context/basic-data/codes/*/global.json              │
-│ - Perform semantic matching with dependency data            │
-│ - If found → Return and STOP                                │
-└─────────────────────────────────────────────────────────────┘
-                              │
-                  (No match found in basic data)
-                              ▼
-┌─────────────────────────────────────────────────────────────┐
-│              Step 4: WebSearch Fallback                     │
-│ - Build search query based on field type and context        │
-│ - Use WebSearch tool to find standard codes/values          │
-│ - Return with "source: websearch" indicator                 │
-└─────────────────────────────────────────────────────────────┘
-```
+## 推荐工作流
 
-## Execution Control Flow
+### 核心原则
 
-### Decision Tree Logic (Correct)
+1. 所有推荐必须基于**语义相似性**，而不是简单的字符串相等匹配
+2. 每个步骤后必须执行**检查点评估**
+3. 检查点决策为"终止"时，**立即跳转到输出验证**
+
+### 渐进式查询策略概览
 
 ```
-Step 1: Historical Search (Immediate Termination)
-├── Found 90%+ match → Immediately return and STOP
-└── No high confidence match → Continue to Step 2
-
-Step 2: Country-Specific Data (Forced Terminal)
-├── Country file exists → Select best match → Immediately return and STOP
-└── Country file missing → Continue to Step 3
-
-Step 3: Global Data (Only if Step 2 failed)
-├── Found global match → Return result and STOP
-└── No global match → Continue to Step 4
-
-Step 4: WebSearch (Final fallback)
-└── Always return result and STOP
+输入验证 → 步骤1 → 检查点1 → [终止?] → 步骤2 → 检查点2 → [终止?] → 步骤3 → 检查点3 → [终止?] → 步骤4 → 输出验证
+                      ↓                      ↓                      ↓
+                 输出验证 ←──────────────────┴──────────────────────┘
 ```
 
-### Prohibited Execution Patterns
+---
 
-❌ **Wrong**: Try Step 1 → Try Step 2 → Try Step 3 → Try Step 4
-❌ **Wrong**: Continue execution after finding successful match
-❌ **Wrong**: Mix results from multiple steps
-❌ **Wrong**: "Just to confirm, let me check other sources"
+## 分步实现
 
-### Key Principles
+### 步骤 1：搜索历史发票
 
-1. **Stop when answer found** - Don't continue to "confirm"
-2. **Single best answer** - Don't mix results from multiple steps
-3. **Decision tree logic** - Each step is conditional branch, not sequential execution
-4. **Immediate return** - Don't delay after finding valid answer
+1. **定位发票目录**：`./context/invoices/{tenant_id}/{country_code}/`
+2. **安全性检查**：确保仅在租户目录内搜索
+3. **使用上下文相似性搜索语义相似的发票**
+4. **记录匹配结果和置信度**
 
-## Step-by-Step Implementation
+---
 
-### Step 1: Search Historical Invoices (Immediate Termination)
+### 检查点 1：历史匹配评估
 
-🚨 **Step 1 Absolute Termination Rule** 🚨
-- If 90%+ confidence match found → Immediately return and STOP
-- Never continue to Step 2 under any circumstances
-- Historical match success = Execution complete = Return result to user
+**必须回答以下问题并输出状态：**
 
-1. **Locate invoice directory**: `./context/invoices/{tenant_id}/{country_code}/`
-2. **Search for semantically similar invoices** using context similarity
-3. **🚨 Immediately return and STOP** if found:
-   - **Only when** semantically similar with 90%+ confidence:
-     - Immediately return Step 1 recommendation to user
-     - **STOP all subsequent step execution**
-     - **Forbidden to continue to Step 2, Step 3, or Step 4**
+| 条件 | 决策 | 下一步 |
+|------|------|--------|
+| 找到 90%+ 置信度匹配 | 🛑 终止 | 跳转到输出验证 |
+| 无高置信度匹配 | ➡️ 继续 | 进入步骤 2 |
 
-### Step 2: Country-Specific Basic Data (Forced Terminal Step)
+**状态输出示例（终止）：**
 
-🚨 **Critical Termination Rule** 🚨
-- Step 2 is a terminal step - execution MUST stop here
-- If country-specific file exists → Select best match → Immediately return and STOP
-- Never continue to Step 3 after successful Step 2 completion
+> **📍 检查点 1：历史匹配评估**
+> - 结果：成功（置信度 95%，匹配发票：2024-01-15+INV-001.json）
+> - 决策：🛑 终止
+> - 原因：找到高置信度历史匹配，无需继续查询
+> - 下一步：跳转到输出验证
 
-**【Forced Termination】If country-specific basic data file exists:**
-1. Must select a recommendation value from it
-2. Must immediately return result to user
-3. Must stop all subsequent processing steps
-4. Forbidden to continue to Step 3 or any other steps
+**状态输出示例（继续）：**
 
-| Target Field | Data File Path |
-|--------------|----------------|
+> **📍 检查点 1：历史匹配评估**
+> - 结果：无匹配（最高置信度 65%，未达到 90% 阈值）
+> - 决策：➡️ 继续
+> - 原因：历史数据中无高置信度匹配
+> - 下一步：进入步骤 2
+
+---
+
+### 步骤 2：国家特定基础数据
+
+**仅当检查点 1 决策为"继续"时执行**
+
+1. **确定数据文件路径**（根据目标字段）：
+
+| 目标字段 | 数据文件路径 |
+|---------|------------|
 | `unitCode` | `./context/basic-data/codes/uom-codes/{country}.json` |
 | `TaxCategory` | `./context/basic-data/codes/tax-category-codes/{country}.json` |
 | `PaymentMeans` | `./context/basic-data/codes/payment-means/{country}.json` |
@@ -213,56 +156,106 @@ Step 4: WebSearch (Final fallback)
 | `ChargeCode` | `./context/basic-data/codes/charge-codes/{country}.json` |
 | `TaxExemptionReason` | `./context/basic-data/codes/tax-exemption-reason-codes/{country}.json` |
 
-### Step 3: Global Basic Data
+2. **检查文件是否存在**
+3. **如果存在**：加载候选值，执行语义匹配，选择最佳匹配
+4. **记录文件存在状态和匹配结果**
 
-**Execute only when country-specific data file does not exist**
+---
 
-1. **Read global candidate values**
-2. **Use same semantic matching strategy**
-3. **Return best match result**
+### 检查点 2：国家数据评估
 
-### Step 4: WebSearch Fallback
+**必须回答以下问题并输出状态：**
 
-**Execute only when Steps 2 and 3 cannot provide recommendations**
+| 条件 | 决策 | 下一步 |
+|------|------|--------|
+| 国家文件存在 | 🛑 终止 | 跳转到输出验证（使用最佳匹配） |
+| 国家文件不存在 | ➡️ 继续 | 进入步骤 3 |
 
-Build search queries based on field type and use WebSearch tool.
+🚨 **关键规则**：国家文件存在时，必须从中选择推荐值并终止，即使匹配置信度不高
 
-## Output Format
+**状态输出示例（终止）：**
 
-### Success Response Format
+> **📍 检查点 2：国家数据评估**
+> - 结果：文件存在（./context/basic-data/codes/uom-codes/DE.json）
+> - 决策：🛑 终止
+> - 原因：国家特定数据文件存在，已选择最佳匹配值 "EA"
+> - 下一步：跳转到输出验证
 
-```json
-{
-  "recommended": "H87",
-  "reason": "Found in historical invoices for similar product 'DJI Mavic 3 drone' in tenant 1/MY. Unit code H87 (pieces) commonly used for personal electronic devices.",
-  "source": "historical",
-  "confidence": "high"
-}
-```
+**状态输出示例（继续）：**
 
-### Response Fields
+> **📍 检查点 2：国家数据评估**
+> - 结果：文件不存在（./context/basic-data/codes/uom-codes/XX.json）
+> - 决策：➡️ 继续
+> - 原因：无国家特定数据文件
+> - 下一步：进入步骤 3
 
-| Field | Type | Required | Description |
-|-------|------|----------|-------------|
-| `recommended` | String | Yes | Recommended field value |
-| `reason` | String | Yes | Explanation for the recommendation |
-| `source` | Enum | Yes | `historical`, `country_basic_data`, `global_basic_data`, `websearch` |
-| `confidence` | Enum | No | `high` (90%+), `medium` (70-89%), `low` (<70%) |
+---
 
-## Data Directory Structure
+### 步骤 3：全局基础数据
+
+**仅当检查点 2 决策为"继续"时执行**
+
+1. **读取全局数据文件**：
+   - `./context/basic-data/global/*.json`
+   - `./context/basic-data/codes/*/global.json`
+2. **使用相同的语义匹配策略**
+3. **记录匹配结果**
+
+---
+
+### 检查点 3：全局数据评估
+
+**必须回答以下问题并输出状态：**
+
+| 条件 | 决策 | 下一步 |
+|------|------|--------|
+| 找到匹配 | 🛑 终止 | 跳转到输出验证 |
+| 无匹配 | ➡️ 继续 | 进入步骤 4 |
+
+**状态输出示例（终止）：**
+
+> **📍 检查点 3：全局数据评估**
+> - 结果：成功（在 global.json 中找到匹配）
+> - 决策：🛑 终止
+> - 原因：全局数据中找到语义匹配值 "KGM"
+> - 下一步：跳转到输出验证
+
+**状态输出示例（继续）：**
+
+> **📍 检查点 3：全局数据评估**
+> - 结果：无匹配（全局数据中无相关候选值）
+> - 决策：➡️ 继续
+> - 原因：基础数据中无法找到合适推荐
+> - 下一步：进入步骤 4
+
+---
+
+### 步骤 4：网络搜索回退
+
+**仅当检查点 3 决策为"继续"时执行**
+
+1. **根据字段类型和上下文构建搜索查询**
+2. **使用网络搜索工具查找标准代码/值**
+3. **记录搜索结果**
+
+步骤 4 完成后，直接进入输出验证（无需检查点，因为这是最终回退）
+
+---
+
+## 数据目录结构
 
 ```
 ./context/
-├── pending-invoices/            # Pending invoices (tenant isolated!)
+├── pending-invoices/            # 待处理发票（租户隔离！）
 │   └── {tenant_id}/
 │       └── {invoice_filename}.xml|.json
 │
-├── invoices/                    # Historical invoices (tenant isolated!)
+├── invoices/                    # 历史发票（租户隔离！）
 │   └── {tenant_id}/
 │       └── {country_code}/
 │           └── {date}+{invoice_number}.json
 │
-└── basic-data/                  # Shared basic data (no tenant isolation)
+└── basic-data/                  # 共享基础数据（无租户隔离）
     ├── global/
     │   ├── currencies.json
     │   └── invoice-types.json
@@ -273,33 +266,96 @@ Build search queries based on field type and use WebSearch tool.
         └── ...
 ```
 
-## Common Pitfalls to Avoid
+---
 
-1. **❌ Searching for preset specific values instead of semantic matching**
-2. **❌ Ignoring context similarity and directly using historical data**
-3. **❌ Cross-tenant data access**
-4. **❌ Continuing execution after finding successful match**
-5. **❌ Mixing results from multiple steps**
+## 输出验证（最终步骤）
 
-## Non-Negotiable Execution Rules
+🚨 **任何检查点决策为"终止"后，必须执行此步骤** 🚨
 
-### Rule #1: Step 1 termination is absolute
-- Step 1 is not "exploration phase" - it's "match and return phase"
-- Found 90%+ confidence match = Step 1 success = Execution end
+### 结构化输出模板
 
-### Rule #2: Step 2 termination is absolute
-- Step 2 is not "validation phase" - it's "select and return phase"
-- Found country-specific data = Step 2 success = Execution end
+```json
+{
+  "recommended": "<value>",
+  "reason": "<explanation>",
+  "source": "<historical|country_basic_data|global_basic_data|websearch>",
+  "confidence": "<high|medium|low>"
+}
+```
 
-### Rule #3: Decision tree logic, not sequential search
-- Each step is conditional branch, not sequential execution
-- Success in any step means immediate termination
+### 字段说明
 
-### Rule #4: Immediate return, no delay
-- Return valid answer the moment it's found
-- No "additional checks", "completeness validation", or "alternatives"
+| 字段 | 类型 | 必需 | 允许的值 | 描述 |
+|------|------|------|---------|------|
+| `recommended` | string | ✅ 是 | 任何有效的 UBL 字段值 | 目标字段的推荐值。必须是单个特定值。 |
+| `reason` | string | ✅ 是 | 自由文本（1-3 句） | 推荐此值的原因。 |
+| `source` | string | ✅ 是 | `"historical"` \| `"country_basic_data"` \| `"global_basic_data"` \| `"websearch"` | 产生此推荤的步骤。 |
+| `confidence` | string | ⚠️ 条件 | `"high"` \| `"medium"` \| `"low"` | 当来源为 `"historical"` 时必需。 |
 
-### Rule #5: Single answer principle
-- Return one best answer, not multiple options
-- Don't mix results from different steps
-- Trust first high-confidence answer found
+### 验证检查清单
+
+在输出 JSON 之前，验证：
+
+- [ ] 输出是有效的 JSON 格式
+- [ ] 包含所有必需字段：`recommended`、`reason`、`source`
+- [ ] 当 `source` 为 `"historical"` 时，包含 `confidence` 字段
+- [ ] `recommended` 是非空字符串，单个具体值
+- [ ] `source` 是四个允许值之一
+- [ ] JSON 使用双引号
+
+### 验证失败处理
+
+如果验证失败：
+1. 识别具体错误
+2. 修正输出格式
+3. 重新验证直到通过
+
+---
+
+### 最终输出规则
+
+🚨 **JSON 代码块是最终输出，之后不允许任何内容** 🚨
+
+**输出要求：**
+- ✅ 仅输出一个 JSON 代码块
+- ✅ JSON 代码块后立即停止响应
+- ❌ 禁止在 JSON 后添加"最终建议"
+- ❌ 禁止在 JSON 后添加"总结"
+- ❌ 禁止在 JSON 后添加任何解释文字
+- ❌ 禁止在 JSON 后添加检查点状态框
+
+**完整输出示例：**
+
+```json
+{
+  "recommended": "XPP",
+  "reason": "基于马来西亚 UOM 数据文件中的语义匹配，XPP 适用于电子设备类产品",
+  "source": "country_basic_data"
+}
+```
+
+**（响应在 JSON 代码块结束后立即停止，无任何后续内容）**
+
+---
+
+## 常见陷阱
+
+1. **❌ 跳过检查点状态输出**
+2. **❌ 检查点决策为"终止"后继续执行后续步骤**
+3. **❌ 搜索预设特定值而不是语义匹配**
+4. **❌ 跨租户数据访问**
+5. **❌ 混合来自多个步骤的结果**
+6. **❌ 输出验证前返回结果**
+7. **❌ 最终检查点后添加额外内容（如"最终建议"、"总结"等）**
+
+---
+
+## 执行规则总结
+
+| 规则 | 描述 |
+|------|------|
+| 检查点必须输出 | 每个检查点必须输出标准格式的状态 |
+| 终止即跳转 | 检查点决策为"终止"时，立即跳转到输出验证 |
+| 单一答案 | 返回一个最佳答案，不混合多个步骤的结果 |
+| 决策树逻辑 | 每个检查点是条件分支，不是顺序执行 |
+| 验证必须通过 | 输出验证通过后才能返回结果 |
