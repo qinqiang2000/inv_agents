@@ -10,7 +10,10 @@
       "Bash(python:*)",
       "Bash(lsof:*)",
       "Bash(xargs kill:*)",
-      "Bash(sh run.sh:*)"
+      "Bash(sh run.sh:*)",
+      "Bash(./run.sh:*)",
+      "Bash(head:*)",
+      "Bash(timeout:*)"
     ],
     "deny": [],
     "ask": []

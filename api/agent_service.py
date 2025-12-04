@@ -46,7 +46,12 @@ def build_initial_prompt(
     Returns:
         Formatted prompt string
     """
-    parts = ["# 上下文"]
+    parts = ["# 任务"]
+    if skill:
+        parts.append(f"使用的skill：{skill}")
+    parts.append(user_prompt)
+    
+    parts.append("\n# 上下文")
     parts.append(f"租户：{tenant_id}")
 
     if country_code:
@@ -55,13 +60,9 @@ def build_initial_prompt(
     if invoice_file_path:
         parts.append(f"Invoice File Path：{invoice_file_path}")
 
-    if skill:
-        parts.append(f"要使用的skill：{skill}")
-
-    parts.append("\n# 任务")
-    parts.append(user_prompt)
-
     parts.append("\n# 约束")
+    if skill:
+        parts.append(f"严格按照skill：{skill} 的要求进行输出，不要输出任何其他内容")
     parts.append(f"所有的输出使用语言：{language}")
 
     return "\n".join(parts)
