@@ -201,13 +201,15 @@ class InvoiceExporter:
 
     def __init__(self, output_dir: str = None, num_threads: int = 4,
                  compress: bool = False, dry_run: bool = False, incremental: bool = False,
-                 tenant_id: str = None):
+                 tenant_id: str = None, log_queue=None, progress_queue=None):
         self.output_dir = Path(output_dir or OUTPUT_BASE_DIR)
         self.num_threads = num_threads
         self.compress = compress
         self.dry_run = dry_run
         self.incremental = incremental
         self.tenant_id = tenant_id
+        self.log_queue = log_queue
+        self.progress_queue = progress_queue
         self.stats = {
             'total_groups': 0,
             'total_invoices': 0,
@@ -219,6 +221,20 @@ class InvoiceExporter:
         self.lock = threading.Lock()
         self.state_manager = StateManager()
         self.state_manager.dry_run = dry_run
+
+        # Setup queue logging if provided
+        if self.log_queue:
+            try:
+                # Import here to avoid issues when running as CLI
+                import sys
+                sys.path.insert(0, str(Path(__file__).parent.parent / 'api' / 'admin'))
+                from logging_handler import QueueLoggingHandler
+
+                queue_handler = QueueLoggingHandler(self.log_queue)
+                queue_handler.setLevel(logging.INFO)
+                logger.addHandler(queue_handler)
+            except Exception as e:
+                logger.warning(f"Failed to setup queue logging: {e}")
 
     def validate_json_field(self, json_str: str) -> bool:
         """验证JSON字段格式"""
@@ -414,7 +430,7 @@ class InvoiceExporter:
         return successful_count
 
     def process_group(self, tenant_id: str, country: str, invoice_count: int,
-                     progress_bar: tqdm = None, last_time: str = None, boundary_time: str = None) -> Dict[str, Any]:
+                     last_time: str = None, boundary_time: str = None) -> Dict[str, Any]:
         """处理单个租户-国家分组"""
         thread_name = threading.current_thread().name
         start_time = time.time()
@@ -471,9 +487,6 @@ class InvoiceExporter:
                 'error': str(e),
                 'duration': time.time() - start_time
             }
-        finally:
-            if progress_bar:
-                progress_bar.update(1)
 
     def export_incremental(self, limit_groups: int = None) -> bool:
         """增量导出所有发票数据"""
@@ -538,7 +551,7 @@ class InvoiceExporter:
                             # 处理每个国家分组
                             result = self.process_group(
                                 tid, cntry, count,
-                                progress_bar=None, last_time=last_time, boundary_time=export_boundary
+                                last_time=last_time, boundary_time=export_boundary
                             )
 
                             if result['status'] == 'success':
@@ -571,11 +584,23 @@ class InvoiceExporter:
                     logger.info(f"状态文件: {STATE_FILE}")
                     logger.info("=" * 80)
 
-                    return True
+                    # Return summary dict
+                    return {
+                        "success": True,
+                        "total_tenants": total_tenant_count,
+                        "new_invoices": total_export_count,
+                        "duration_seconds": total_duration,
+                        "output_dir": str(self.output_dir),
+                        "state_file": str(STATE_FILE)
+                    }
 
             except Exception as e:
                 logger.error(f"增量导出失败: {e}", exc_info=True)
-                return False
+                return {
+                    "success": False,
+                    "error": str(e),
+                    "duration_seconds": time.time() - self.stats['start_time'] if self.stats['start_time'] else 0
+                }
 
     def export_all(self, limit_groups: int = None) -> bool:
         """导出所有发票数据"""
@@ -603,25 +628,39 @@ class InvoiceExporter:
 
             # 使用多线程处理（每个线程创建自己的连接）
             results = []
-            with ThreadPoolExecutor(max_workers=self.num_threads) as executor:
-                # 创建进度条
-                with tqdm(total=len(groups), desc="处理分组", unit="group") as progress_bar:
-                    # 提交所有任务
-                    future_to_group = {
-                        executor.submit(
-                            self.process_group,
-                            tenant_id,
-                            country,
-                            invoice_count,
-                            progress_bar
-                        ): (tenant_id, country)
-                        for tenant_id, country, invoice_count in groups
-                    }
+            completed_count = 0
+            total_count = len(groups)
 
-                    # 收集结果
-                    for future in as_completed(future_to_group):
-                        result = future.result()
-                        results.append(result)
+            with ThreadPoolExecutor(max_workers=self.num_threads) as executor:
+                # 提交所有任务
+                future_to_group = {
+                    executor.submit(
+                        self.process_group,
+                        tenant_id,
+                        country,
+                        invoice_count,
+                        None  # No tqdm progress bar
+                    ): (tenant_id, country)
+                    for tenant_id, country, invoice_count in groups
+                }
+
+                # 收集结果
+                for future in as_completed(future_to_group):
+                    result = future.result()
+                    results.append(result)
+
+                    # Update progress via queue if provided
+                    completed_count += 1
+                    if self.progress_queue:
+                        try:
+                            self.progress_queue.put_nowait({
+                                "current": completed_count,
+                                "total": total_count,
+                                "percentage": (completed_count / total_count) * 100,
+                                "message": f"Processed {completed_count}/{total_count} groups"
+                            })
+                        except Exception:
+                            pass  # Ignore queue errors
 
             # 统计结果
             successful_groups = sum(1 for r in results if r['status'] == 'success')
@@ -651,11 +690,27 @@ class InvoiceExporter:
             logger.info(f"输出目录: {self.output_dir}")
             logger.info("=" * 80)
 
-            return failed_groups == 0
+            # Return summary dict instead of bool
+            return {
+                "success": failed_groups == 0,
+                "total_groups": len(groups),
+                "successful_groups": successful_groups,
+                "failed_groups": failed_groups,
+                "no_data_groups": no_data_groups,
+                "total_invoices": self.stats['total_invoices'],
+                "successful_files": self.stats['successful_files'],
+                "failed_files": self.stats['failed_files'],
+                "duration_seconds": total_duration,
+                "output_dir": str(self.output_dir)
+            }
 
         except Exception as e:
             logger.error(f"导出失败: {e}", exc_info=True)
-            return False
+            return {
+                "success": False,
+                "error": str(e),
+                "duration_seconds": time.time() - self.stats['start_time'] if self.stats['start_time'] else 0
+            }
 
 
 def main():
@@ -690,11 +745,12 @@ def main():
 
     # 根据模式执行
     if args.incremental:
-        success = exporter.export_incremental(limit_groups=args.limit)
+        result = exporter.export_incremental(limit_groups=args.limit)
     else:
-        success = exporter.export_all(limit_groups=args.limit)
+        result = exporter.export_all(limit_groups=args.limit)
 
-    sys.exit(0 if success else 1)
+    # Exit based on success status
+    sys.exit(0 if result.get("success") else 1)
 
 
 if __name__ == "__main__":

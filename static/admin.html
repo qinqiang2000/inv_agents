@@ -257,6 +257,208 @@
             padding: 0;
             border: none;
         }
+
+        /* Sync Section */
+        .sync-section {
+            margin-top: 24px;
+        }
+
+        .sync-cards {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(350px, 1fr));
+            gap: 16px;
+            margin-bottom: 16px;
+        }
+
+        .sync-card {
+            border: 2px solid #e0e0e0;
+            border-radius: 8px;
+            padding: 20px;
+            background: white;
+        }
+
+        .sync-card h3 {
+            font-size: 18px;
+            color: #333;
+            margin-bottom: 8px;
+        }
+
+        .sync-card p {
+            font-size: 14px;
+            color: #666;
+            margin-bottom: 16px;
+        }
+
+        .sync-options {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            margin-bottom: 16px;
+        }
+
+        .sync-options label {
+            font-size: 13px;
+            color: #555;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .sync-options input[type="text"],
+        .sync-options input[type="number"] {
+            padding: 4px 8px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-size: 13px;
+            width: 100px;
+        }
+
+        .sync-btn {
+            background: #667eea;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 500;
+            transition: background 0.2s;
+        }
+
+        .sync-btn:hover:not(:disabled) {
+            background: #5568d3;
+        }
+
+        .sync-btn:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+        }
+
+        .sync-btn.running {
+            background: #ff9800;
+        }
+
+        .sync-status {
+            margin-top: 12px;
+            padding: 8px 12px;
+            border-radius: 4px;
+            font-size: 13px;
+            display: none;
+        }
+
+        .sync-status.visible {
+            display: block;
+        }
+
+        .sync-status.running {
+            background: #fff3cd;
+            color: #856404;
+            border: 1px solid #ffc107;
+        }
+
+        .sync-status.success {
+            background: #d4edda;
+            color: #155724;
+            border: 1px solid #28a745;
+        }
+
+        .sync-status.error {
+            background: #f8d7da;
+            color: #721c24;
+            border: 1px solid #dc3545;
+        }
+
+        /* Log Viewer */
+        .log-viewer {
+            margin-top: 24px;
+            border: 2px solid #e0e0e0;
+            border-radius: 8px;
+            background: white;
+            overflow: hidden;
+        }
+
+        .log-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 12px 16px;
+            background: #f8f9fa;
+            border-bottom: 1px solid #e0e0e0;
+        }
+
+        .log-header h4 {
+            font-size: 16px;
+            color: #333;
+            margin: 0;
+        }
+
+        .log-header button {
+            background: white;
+            border: 1px solid #ddd;
+            padding: 4px 12px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 12px;
+        }
+
+        .log-content {
+            padding: 12px;
+            max-height: 400px;
+            overflow-y: auto;
+            font-family: 'Courier New', monospace;
+            font-size: 12px;
+            background: #1e1e1e;
+            color: #d4d4d4;
+        }
+
+        .log-line {
+            padding: 2px 0;
+            word-wrap: break-word;
+        }
+
+        .log-timestamp {
+            color: #858585;
+            margin-right: 8px;
+        }
+
+        .log-level {
+            display: inline-block;
+            width: 60px;
+            font-weight: bold;
+            margin-right: 8px;
+        }
+
+        .log-info .log-level { color: #4ec9b0; }
+        .log-warning .log-level { color: #ffa500; }
+        .log-error .log-level { color: #f44747; }
+        .log-success .log-level { color: #89d185; }
+
+        .progress-bar {
+            margin: 12px 16px;
+            height: 24px;
+            background: #e0e0e0;
+            border-radius: 12px;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .progress-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #667eea, #764ba2);
+            border-radius: 12px;
+            transition: width 0.3s ease;
+            width: 0%;
+        }
+
+        .progress-text {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            font-size: 12px;
+            font-weight: bold;
+            color: #333;
+        }
     </style>
 </head>
 <body>
@@ -302,6 +504,69 @@
                         </tr>
                     </tbody>
                 </table>
+            </div>
+
+            <!-- Data Synchronization Section -->
+            <div class="section sync-section">
+                <h2 class="section-title">Data Synchronization</h2>
+
+                <div class="sync-cards">
+                    <!-- Basic Data Sync Card -->
+                    <div class="sync-card">
+                        <h3>📊 Basic Data Export</h3>
+                        <p>Export currencies, invoice types, tax codes, and payment means from database to context files.</p>
+
+                        <button class="sync-btn" id="basicDataSyncBtn" onclick="triggerBasicDataSync()">
+                            Run Basic Data Sync
+                        </button>
+
+                        <div class="sync-status" id="basicDataStatus"></div>
+                    </div>
+
+                    <!-- Invoice Data Sync Card -->
+                    <div class="sync-card">
+                        <h3>📄 Invoice Data Export</h3>
+                        <p>Export historical invoice data in UBL 2.1 JSON format, organized by tenant and country.</p>
+
+                        <div class="sync-options">
+                            <label>
+                                <input type="checkbox" id="incrementalMode" checked>
+                                <span>Incremental Mode (only new/updated invoices)</span>
+                            </label>
+                            <label>
+                                <span style="width: 80px;">Tenant ID:</span>
+                                <input type="text" id="tenantId" placeholder="All tenants">
+                            </label>
+                            <label>
+                                <span style="width: 80px;">Threads:</span>
+                                <input type="number" id="threads" value="4" min="1" max="16">
+                            </label>
+                            <label>
+                                <input type="checkbox" id="compressMode">
+                                <span>Enable Compression (gzip)</span>
+                            </label>
+                        </div>
+
+                        <button class="sync-btn" id="invoiceSyncBtn" onclick="triggerInvoiceSync()">
+                            Run Invoice Sync
+                        </button>
+
+                        <div class="sync-status" id="invoiceStatus"></div>
+                    </div>
+                </div>
+
+                <!-- Log Viewer -->
+                <div class="log-viewer" id="logViewer" style="display: none;">
+                    <div class="log-header">
+                        <h4>📋 Sync Logs</h4>
+                        <button onclick="clearLogs()">Clear Logs</button>
+                    </div>
+                    <div class="log-content" id="logContent"></div>
+                    <div class="progress-bar" id="progressBar" style="display: none;">
+                        <div class="progress-fill" id="progressFill"></div>
+                        <span class="progress-text" id="progressText">0%</span>
+                    </div>
+                </div>
             </div>
         </div>
     </div>
@@ -433,6 +698,260 @@
 
         // Auto-refresh every 30 seconds
         setInterval(loadConfigs, 30000);
+
+        // ================================================================
+        // Sync Management Functions
+        // ================================================================
+
+        async function triggerBasicDataSync() {
+            const btn = document.getElementById('basicDataSyncBtn');
+            const statusDiv = document.getElementById('basicDataStatus');
+
+            // Disable button
+            btn.disabled = true;
+            btn.classList.add('running');
+            btn.textContent = 'Syncing...';
+
+            // Show status
+            statusDiv.className = 'sync-status visible running';
+            statusDiv.textContent = 'Starting basic data sync...';
+
+            // Show log viewer
+            const logViewer = document.getElementById('logViewer');
+            logViewer.style.display = 'block';
+            clearLogs();
+
+            try {
+                const response = await fetch('/admin/api/sync/basic-data', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ dry_run: false })
+                });
+
+                if (!response.ok) {
+                    const error = await response.json();
+                    throw new Error(error.detail || 'Sync request failed');
+                }
+
+                // Stream SSE events
+                await consumeSSEStream(response, statusDiv);
+
+            } catch (error) {
+                console.error('Basic data sync failed:', error);
+                statusDiv.className = 'sync-status visible error';
+                statusDiv.textContent = 'Sync failed: ' + error.message;
+                appendLog('ERROR', error.message);
+            } finally {
+                btn.disabled = false;
+                btn.classList.remove('running');
+                btn.textContent = 'Run Basic Data Sync';
+            }
+        }
+
+        async function triggerInvoiceSync() {
+            const btn = document.getElementById('invoiceSyncBtn');
+            const statusDiv = document.getElementById('invoiceStatus');
+
+            // Get parameters
+            const params = {
+                incremental: document.getElementById('incrementalMode').checked,
+                tenant_id: document.getElementById('tenantId').value.trim() || null,
+                threads: parseInt(document.getElementById('threads').value) || 4,
+                compress: document.getElementById('compressMode').checked,
+                dry_run: false
+            };
+
+            // Disable button
+            btn.disabled = true;
+            btn.classList.add('running');
+            btn.textContent = 'Syncing...';
+
+            // Show status
+            statusDiv.className = 'sync-status visible running';
+            statusDiv.textContent = `Starting ${params.incremental ? 'incremental' : 'full'} invoice sync...`;
+
+            // Show log viewer and progress bar
+            const logViewer = document.getElementById('logViewer');
+            const progressBar = document.getElementById('progressBar');
+            logViewer.style.display = 'block';
+            progressBar.style.display = 'block';
+            clearLogs();
+            updateProgress(0, 100, 'Initializing...');
+
+            try {
+                const response = await fetch('/admin/api/sync/invoices', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(params)
+                });
+
+                if (!response.ok) {
+                    const error = await response.json();
+                    throw new Error(error.detail || 'Sync request failed');
+                }
+
+                // Stream SSE events
+                await consumeSSEStream(response, statusDiv);
+
+            } catch (error) {
+                console.error('Invoice sync failed:', error);
+                statusDiv.className = 'sync-status visible error';
+                statusDiv.textContent = 'Sync failed: ' + error.message;
+                appendLog('ERROR', error.message);
+            } finally {
+                btn.disabled = false;
+                btn.classList.remove('running');
+                btn.textContent = 'Run Invoice Sync';
+                progressBar.style.display = 'none';
+            }
+        }
+
+        async function consumeSSEStream(response, statusDiv) {
+            const reader = response.body.getReader();
+            const decoder = new TextDecoder();
+            let buffer = '';
+            let currentEvent = null;
+
+            while (true) {
+                const {value, done} = await reader.read();
+                if (done) break;
+
+                buffer += decoder.decode(value, {stream: true});
+                const lines = buffer.split('\n');
+                buffer = lines.pop(); // Keep incomplete line in buffer
+
+                for (const line of lines) {
+                    if (line.startsWith('event: ')) {
+                        currentEvent = line.substring(7).trim();
+                    } else if (line.startsWith('data: ')) {
+                        const dataStr = line.substring(6);
+                        const data = JSON.parse(dataStr);
+                        if (currentEvent) {
+                            handleSyncEvent({event: currentEvent, data: data}, statusDiv);
+                            currentEvent = null;
+                        }
+                    } else if (line.trim() === '') {
+                        // Empty line marks end of event
+                        currentEvent = null;
+                    }
+                }
+            }
+        }
+
+        function handleSyncEvent(message, statusDiv) {
+            const eventType = message.event;
+            // message.data is already parsed in consumeSSEStream
+            const data = typeof message.data === 'string' ? JSON.parse(message.data) : message.data;
+
+            switch (eventType) {
+                case 'sync_started':
+                    appendLog('INFO', `🚀 Sync started: ${data.script} (${data.mode} mode)`);
+                    break;
+
+                case 'log_message':
+                    appendLog(data.level, data.message);
+                    break;
+
+                case 'progress_update':
+                    updateProgress(data.current, data.total, data.message || '');
+                    break;
+
+                case 'sync_completed':
+                    const statusClass = data.status === 'success' ? 'success' : 'error';
+                    const statusText = data.status === 'success'
+                        ? `✅ Sync completed successfully in ${data.duration_seconds.toFixed(1)}s`
+                        : `⚠️ Sync completed with errors in ${data.duration_seconds.toFixed(1)}s`;
+
+                    appendLog(data.status === 'success' ? 'SUCCESS' : 'WARNING', statusText);
+
+                    if (data.summary) {
+                        appendLog('INFO', `Summary: ${JSON.stringify(data.summary, null, 2)}`);
+                    }
+
+                    // Update status div
+                    statusDiv.className = `sync-status visible ${statusClass}`;
+                    statusDiv.textContent = statusText;
+                    break;
+
+                case 'error':
+                    appendLog('ERROR', `❌ ${data.message}`);
+                    break;
+
+                case 'heartbeat':
+                    // Keep connection alive, no visual feedback
+                    break;
+            }
+        }
+
+        function appendLog(level, message) {
+            const logContent = document.getElementById('logContent');
+            const timestamp = new Date().toLocaleTimeString();
+            const levelClass = level.toLowerCase();
+
+            const logLine = document.createElement('div');
+            logLine.className = `log-line log-${levelClass}`;
+
+            const timestampSpan = document.createElement('span');
+            timestampSpan.className = 'log-timestamp';
+            timestampSpan.textContent = timestamp;
+
+            const levelSpan = document.createElement('span');
+            levelSpan.className = 'log-level';
+            levelSpan.textContent = level.padEnd(7);
+
+            const messageSpan = document.createElement('span');
+            messageSpan.className = 'log-message';
+            messageSpan.textContent = message;
+
+            logLine.appendChild(timestampSpan);
+            logLine.appendChild(levelSpan);
+            logLine.appendChild(messageSpan);
+
+            logContent.appendChild(logLine);
+            logContent.scrollTop = logContent.scrollHeight;
+        }
+
+        function updateProgress(current, total, message) {
+            const progressFill = document.getElementById('progressFill');
+            const progressText = document.getElementById('progressText');
+
+            const percentage = total > 0 ? (current / total) * 100 : 0;
+            progressFill.style.width = percentage + '%';
+            progressText.textContent = `${percentage.toFixed(1)}% ${message ? '- ' + message : ''}`;
+        }
+
+        function clearLogs() {
+            document.getElementById('logContent').innerHTML = '';
+            updateProgress(0, 100, '');
+        }
+
+        // Poll sync status on page load
+        async function refreshSyncStatus() {
+            try {
+                const response = await fetch('/admin/api/sync/status');
+                const status = await response.json();
+
+                // Update button states based on running status
+                if (status.basic_data?.is_running) {
+                    const btn = document.getElementById('basicDataSyncBtn');
+                    btn.disabled = true;
+                    btn.classList.add('running');
+                    btn.textContent = 'Syncing...';
+                }
+
+                if (status.invoices?.is_running) {
+                    const btn = document.getElementById('invoiceSyncBtn');
+                    btn.disabled = true;
+                    btn.classList.add('running');
+                    btn.textContent = 'Syncing...';
+                }
+            } catch (error) {
+                console.warn('Failed to refresh sync status:', error);
+            }
+        }
+
+        // Refresh sync status on page load
+        refreshSyncStatus();
     </script>
 </body>
 </html>

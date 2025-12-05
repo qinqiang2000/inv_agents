@@ -9,6 +9,8 @@ import json
 import os
 import sys
 import logging
+import asyncio
+import time
 from datetime import datetime, timezone
 from typing import Dict, List, Optional, Any
 from pathlib import Path
@@ -288,40 +290,157 @@ def export_global_invoice_types(connection) -> bool:
     return False
 
 
-def main():
-    """主函数"""
-    logger.info("=" * 60)
-    logger.info("基础数据导出开始")
-    logger.info("=" * 60)
+def export_basic_data_to_context(
+    dry_run: bool = False,
+    log_queue: Optional[asyncio.Queue] = None
+) -> Dict[str, Any]:
+    """
+    Export basic data to context directory (importable version for API).
+
+    This function is designed to be called from the admin API sync service.
+    It supports queue-based logging for real-time progress streaming.
+
+    Args:
+        dry_run: If True, preview mode without writing files
+        log_queue: Optional asyncio queue for streaming logs to SSE clients
+
+    Returns:
+        Dict with export summary:
+        {
+            "success": bool,
+            "files_created": int,
+            "total_records": int,
+            "duration_seconds": float,
+            "errors": List[str]
+        }
+    """
+    start_time = time.time()
+    errors = []
+    total_files = 0
+    total_records = 0
+
+    # Setup queue logging if provided
+    if log_queue:
+        try:
+            # Import here to avoid issues when running as CLI
+            sys.path.insert(0, str(Path(__file__).parent.parent / 'api' / 'admin'))
+            from logging_handler import QueueLoggingHandler
+
+            queue_handler = QueueLoggingHandler(log_queue)
+            queue_handler.setLevel(logging.INFO)
+            logger.addHandler(queue_handler)
+        except Exception as e:
+            # Fallback if import fails
+            logger.warning(f"Failed to setup queue logging: {e}")
 
     try:
+        logger.info("=" * 60)
+        logger.info("基础数据导出开始")
+        logger.info("=" * 60)
+
         with DatabaseConnection(DB_CONFIG) as conn:
             # 检查 MySQL 版本
             if not check_mysql_version(conn):
-                sys.exit(1)
+                error_msg = "MySQL version check failed"
+                errors.append(error_msg)
+                logger.error(error_msg)
+                return {
+                    "success": False,
+                    "files_created": 0,
+                    "total_records": 0,
+                    "duration_seconds": time.time() - start_time,
+                    "errors": errors
+                }
 
-            # 导出全局数据
+            # 导出全局数据 (with error handling - continue on failure)
             logger.info("\n--- 导出全局数据 ---")
-            export_global_currencies(conn)
-            export_global_invoice_types(conn)
 
-            # 导出代码数据（按国家分组）
+            try:
+                if not dry_run:
+                    export_global_currencies(conn)
+                else:
+                    logger.info("[DRY RUN] 跳过货币数据导出")
+            except Exception as e:
+                error_msg = f"导出货币数据失败: {e}"
+                errors.append(error_msg)
+                logger.error(error_msg)
+
+            try:
+                if not dry_run:
+                    export_global_invoice_types(conn)
+                else:
+                    logger.info("[DRY RUN] 跳过发票类型导出")
+            except Exception as e:
+                error_msg = f"导出发票类型失败: {e}"
+                errors.append(error_msg)
+                logger.error(error_msg)
+
+            # 导出代码数据（按国家分组）- continue on partial failures
             logger.info("\n--- 导出代码数据（按国家分组） ---")
-            total_files = 0
+
             for code_type, code_info in CODE_TYPES.items():
-                file_count = export_codes_by_country(conn, code_type, code_info)
-                total_files += file_count
+                try:
+                    if not dry_run:
+                        file_count = export_codes_by_country(conn, code_type, code_info)
+                        total_files += file_count
+                    else:
+                        logger.info(f"[DRY RUN] 跳过 {code_info['name']} 导出")
+                except Exception as e:
+                    error_msg = f"导出 {code_info['name']} 失败: {e}"
+                    errors.append(error_msg)
+                    logger.error(error_msg)
+                    # Continue with next code type
+
+            duration = time.time() - start_time
 
             logger.info("\n" + "=" * 60)
-            logger.info(f"✓ 导出完成！共生成 {total_files} 个代码文件")
+            if errors:
+                logger.warning(f"⚠️ 导出完成但有错误！共生成 {total_files} 个代码文件，{len(errors)} 个错误")
+            else:
+                logger.info(f"✓ 导出完成！共生成 {total_files} 个代码文件")
             logger.info(f"输出目录: {OUTPUT_BASE_DIR}")
+            logger.info(f"耗时: {duration:.2f} 秒")
             logger.info("=" * 60)
 
+            return {
+                "success": len(errors) == 0,
+                "files_created": total_files,
+                "total_records": total_records,
+                "duration_seconds": duration,
+                "errors": errors
+            }
+
     except pymysql.Error as e:
-        logger.error(f"数据库错误: {e}")
-        sys.exit(1)
+        error_msg = f"数据库错误: {e}"
+        errors.append(error_msg)
+        logger.error(error_msg)
+        return {
+            "success": False,
+            "files_created": total_files,
+            "total_records": total_records,
+            "duration_seconds": time.time() - start_time,
+            "errors": errors
+        }
     except Exception as e:
-        logger.error(f"导出失败: {e}", exc_info=True)
+        error_msg = f"导出失败: {e}"
+        errors.append(error_msg)
+        logger.error(error_msg, exc_info=True)
+        return {
+            "success": False,
+            "files_created": total_files,
+            "total_records": total_records,
+            "duration_seconds": time.time() - start_time,
+            "errors": errors
+        }
+
+
+def main():
+    """主函数 (CLI entry point)"""
+    # Call the importable function
+    result = export_basic_data_to_context(dry_run=False)
+
+    # Exit with appropriate code
+    if not result["success"]:
         sys.exit(1)
 
 

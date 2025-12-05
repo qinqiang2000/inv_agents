@@ -15,7 +15,12 @@
       "Bash(head:*)",
       "Bash(timeout:*)",
       "Bash(rm:*)",
-      "Bash(tree:*)"
+      "Bash(tree:*)",
+      "Bash(ls:*)",
+      "Bash(curl:*)",
+      "Bash(NO_PROXY=localhost,127.0.0.1 curl:*)",
+      "Bash(open http://localhost:8000/admin)",
+      "Bash(git rm:*)"
     ],
     "deny": [],
     "ask": []
