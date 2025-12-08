@@ -20,7 +20,16 @@
       "Bash(curl:*)",
       "Bash(NO_PROXY=localhost,127.0.0.1 curl:*)",
       "Bash(open http://localhost:8000/admin)",
-      "Bash(git rm:*)"
+      "Bash(git rm:*)",
+      "Bash(pip show:*)",
+      "Bash(cat:*)",
+      "Bash(find:*)",
+      "Bash(claude code --help:*)",
+      "WebSearch",
+      "WebFetch(domain:gist.github.com)",
+      "WebFetch(domain:docs.claude.com)",
+      "WebFetch(domain:docs.anthropic.com)",
+      "WebFetch(domain:www.vtrivedy.com)"
     ],
     "deny": [],
     "ask": []

@@ -12,6 +12,14 @@ VENV_DIR="$SCRIPT_DIR/.venv"
 LOG_DIR="$SCRIPT_DIR/log"
 PID_FILE="$LOG_DIR/app.pid"
 APP_MODULE="app:app"
+
+# Load environment variables from .env.prod if it exists
+if [ -f "$SCRIPT_DIR/.env.prod" ]; then
+    set -a  # Automatically export all variables
+    source "$SCRIPT_DIR/.env.prod"
+    set +a
+fi
+
 HOST="${HOST:-0.0.0.0}"
 PORT="${PORT:-8000}"
 
