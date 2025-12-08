@@ -12,8 +12,8 @@ VENV_DIR="$SCRIPT_DIR/.venv"
 LOG_DIR="$SCRIPT_DIR/log"
 PID_FILE="$LOG_DIR/app.pid"
 APP_MODULE="app:app"
-HOST="0.0.0.0"
-PORT="8000"
+HOST="${HOST:-0.0.0.0}"
+PORT="${PORT:-8000}"
 
 # Colors for output
 RED='\033[0;31m'

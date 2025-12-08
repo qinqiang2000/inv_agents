@@ -337,6 +337,7 @@ def export_basic_data_to_context(
         logger.info("=" * 60)
         logger.info("基础数据导出开始")
         logger.info("=" * 60)
+        logger.info(f"连接数据库: {DB_CONFIG['host']}:{DB_CONFIG['port']}/{DB_CONFIG['database']}")
 
         with DatabaseConnection(DB_CONFIG) as conn:
             # 检查 MySQL 版本
