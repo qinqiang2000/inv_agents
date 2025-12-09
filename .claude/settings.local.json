@@ -41,7 +41,9 @@
       "Bash(time rg:*)",
       "Bash(/Users/qinqiang02/.local/share/claude/versions/2.0.62 --help)",
       "Bash(grep:*)",
-      "Bash(du:*)"
+      "Bash(du:*)",
+      "Bash(done)",
+      "Bash(pip3 list:*)"
     ],
     "deny": [],
     "ask": []

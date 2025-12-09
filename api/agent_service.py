@@ -146,7 +146,8 @@ async def stream_response(
             system_prompt={"type": "preset", "preset": "claude_code"},
             setting_sources=["project"],  # Load CLAUDE.md from project
             allowed_tools=["Skill", "Read", "Grep", "Glob", "Bash", "WebFetch", "WebSearch"],
-            resume=request.session_id  # None for new, sessionId for resume
+            resume=request.session_id,  # None for new, sessionId for resume
+            max_buffer_size=10 * 1024 * 1024  # 10MB 缓冲区
         )
 
         logger.info("Creating ClaudeSDKClient...")
