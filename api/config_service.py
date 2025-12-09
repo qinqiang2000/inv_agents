@@ -8,8 +8,9 @@ from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
-DEAULT_CONFIG = "glm"
-# DEAULT_CONFIG = "claude-router"
+# Default configuration (can be overridden by environment variable DEFAULT_MODEL_CONFIG)
+_DEFAULT_FALLBACK = "glm"
+DEFAULT_CONFIG = os.getenv("DEFAULT_MODEL_CONFIG", _DEFAULT_FALLBACK)
 
 @dataclass
 class ModelConfig:
@@ -71,12 +72,21 @@ PREDEFINED_CONFIGS: Dict[str, ModelConfig] = {
     ),
 }
 
+# Validate that the default config exists
+if DEFAULT_CONFIG not in PREDEFINED_CONFIGS:
+    logger.warning(
+        f"Invalid DEFAULT_MODEL_CONFIG '{DEFAULT_CONFIG}' specified in environment. "
+        f"Available configs: {list(PREDEFINED_CONFIGS.keys())}. "
+        f"Falling back to '{_DEFAULT_FALLBACK}'"
+    )
+    DEFAULT_CONFIG = _DEFAULT_FALLBACK
+
 
 class ConfigManager:
     """Manages runtime configuration for model providers."""
 
     _instance = None
-    _current_config: str = DEAULT_CONFIG  # Default
+    _current_config: str = DEFAULT_CONFIG  # Default from env or fallback
 
     def __new__(cls):
         if cls._instance is None:

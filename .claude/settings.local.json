@@ -29,7 +29,19 @@
       "WebFetch(domain:gist.github.com)",
       "WebFetch(domain:docs.claude.com)",
       "WebFetch(domain:docs.anthropic.com)",
-      "WebFetch(domain:www.vtrivedy.com)"
+      "WebFetch(domain:www.vtrivedy.com)",
+      "Bash(EXPORT_MODE=incremental ./export_invoice_data.sh:*)",
+      "Bash(EXPORT_MODE=incremental python:*)",
+      "Bash(time grep:*)",
+      "Bash(wc:*)",
+      "Bash(xargs:*)",
+      "Bash(python3:*)",
+      "Bash(source:*)",
+      "Bash(time rg --type json \"unitCode\" /Users/qinqiang02/colab/codespace/ai/invoice_engine_3rd/agents/context/invoices/1/HK/)",
+      "Bash(time rg:*)",
+      "Bash(/Users/qinqiang02/.local/share/claude/versions/2.0.62 --help)",
+      "Bash(grep:*)",
+      "Bash(du:*)"
     ],
     "deny": [],
     "ask": []

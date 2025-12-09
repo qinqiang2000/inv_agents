@@ -16,6 +16,7 @@ from claude_agent_sdk import (
     ToolUseBlock
 )
 from .models import QueryRequest
+from .session_manager import session_manager
 
 
 logger = logging.getLogger(__name__)
@@ -163,8 +164,15 @@ async def stream_response(
             session_id_sent = False
             actual_session_id = request.session_id  # Start with existing session_id if resuming
             first_message_received = False
+            session_registered = False
 
-            async for msg in client.receive_response():
+            # If resuming, register session immediately for interrupt support
+            if request.session_id:
+                await session_manager.register(request.session_id, client)
+                session_registered = True
+
+            try:
+                async for msg in client.receive_response():
                     if not first_message_received:
                         first_message_received = True
                         logger.info(f"First message received: {type(msg).__name__}")
@@ -181,6 +189,9 @@ async def stream_response(
                                 })
                                 session_id_sent = True
                                 logger.info(f"Created new session: {actual_session_id}")
+                                # Register session for interrupt support
+                                await session_manager.register(actual_session_id, client)
+                                session_registered = True
 
                     # Also track session_id from ResultMessage (as fallback)
                     if isinstance(msg, ResultMessage):
@@ -191,6 +202,10 @@ async def stream_response(
                             })
                             session_id_sent = True
                             logger.info(f"Created new session (from result): {msg.session_id}")
+                            # Register session for interrupt support (fallback)
+                            if not session_registered:
+                                await session_manager.register(msg.session_id, client)
+                                session_registered = True
 
                     # Process different message types
                     if isinstance(msg, AssistantMessage):
@@ -224,10 +239,12 @@ async def stream_response(
                             f"duration={msg.duration_ms}ms, turns={msg.num_turns}, error={msg.is_error}"
                         )
             
-            if not first_message_received:
-                logger.warning("No messages received from Claude SDK")
-
-
+                if not first_message_received:
+                    logger.warning("No messages received from Claude SDK")
+            finally:
+                # Unregister session when streaming completes or errors
+                if session_registered and actual_session_id:
+                    await session_manager.unregister(actual_session_id)
 
     except Exception as e:
         logger.error(f"Error in stream_response: {str(e)}", exc_info=True)

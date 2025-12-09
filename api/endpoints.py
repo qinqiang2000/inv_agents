@@ -10,6 +10,7 @@ from pydantic import ValidationError
 from sse_starlette.sse import EventSourceResponse
 from .models import QueryRequest
 from . import agent_service
+from .session_manager import session_manager
 
 
 logger = logging.getLogger(__name__)
@@ -177,6 +178,23 @@ async def query_agent(request: Request):
 async def health_check():
     """Health check endpoint."""
     return {"status": "healthy", "service": "invoice-field-recommender-agent"}
+
+
+@router.post("/interrupt/{session_id}")
+async def interrupt_session(session_id: str):
+    """
+    Interrupt an ongoing agent session.
+
+    Args:
+        session_id: The session ID to interrupt
+
+    Returns:
+        {"success": True} if session was found and interrupted
+        {"success": False} if session doesn't exist or interrupt failed
+    """
+    logger.info(f"Received interrupt request for session: {session_id}")
+    success = await session_manager.interrupt(session_id)
+    return {"success": success, "session_id": session_id}
 
 
 
