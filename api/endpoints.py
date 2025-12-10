@@ -17,8 +17,8 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api", tags=["agent"])
 
-# Base directory for storing pending invoices
-PENDING_INVOICES_DIR = "context/pending-invoices"
+# Base directory for storing pending invoices (tenant-isolated)
+TENANT_DATA_DIR = "tenant-data"
 
 
 def save_invoice_context(tenant_id: str, country_code: str, context: str) -> str:
@@ -33,14 +33,14 @@ def save_invoice_context(tenant_id: str, country_code: str, context: str) -> str
     Returns:
         File path where the context was saved
     """
-    # Create directory if not exists
-    tenant_dir = os.path.join(PENDING_INVOICES_DIR, tenant_id)
-    os.makedirs(tenant_dir, exist_ok=True)
+    # Create directory if not exists: tenant-data/{tenant_id}/pending-invoices/
+    pending_dir = os.path.join(TENANT_DATA_DIR, tenant_id, "pending-invoices")
+    os.makedirs(pending_dir, exist_ok=True)
     
     # Generate filename with timestamp (to milliseconds)
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")[:-3]  # Remove last 3 digits to get milliseconds
     filename = f"draft_{country_code}_{timestamp}.xml"
-    file_path = os.path.join(tenant_dir, filename)
+    file_path = os.path.join(pending_dir, filename)
     
     # Write context to file
     with open(file_path, 'w', encoding='utf-8') as f:

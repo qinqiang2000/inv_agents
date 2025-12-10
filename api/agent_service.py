@@ -4,6 +4,7 @@ import asyncio
 import json
 import logging
 import os
+from pathlib import Path
 from typing import AsyncGenerator, Optional
 from claude_agent_sdk import (
     ClaudeSDKClient,
@@ -23,6 +24,11 @@ logger = logging.getLogger(__name__)
 
 # Timeout for waiting on first message from Claude SDK (seconds)
 FIRST_MESSAGE_TIMEOUT = int(os.getenv("CLAUDE_FIRST_MESSAGE_TIMEOUT", "120"))
+
+# Directory paths for tenant isolation
+AGENTS_ROOT = Path(__file__).resolve().parent.parent  # /agents
+CONTEXT_DIR = AGENTS_ROOT / "context"                 # /agents/context (public data)
+TENANT_DATA_DIR = AGENTS_ROOT / "tenant-data"         # /agents/tenant-data (tenant-specific data)
 
 
 def build_initial_prompt(
@@ -141,14 +147,21 @@ async def stream_response(
             )
             logger.info(f"Starting new session: \n prompt: {prompt}")
 
-        # Configure Claude SDK options
+        # Build tenant-specific directory for isolation
+        tenant_dir = TENANT_DATA_DIR / request.tenant_id
+
+        # Configure Claude SDK options with tenant isolation
         options = ClaudeAgentOptions(
             system_prompt={"type": "preset", "preset": "claude_code"},
             setting_sources=["project"],  # Load CLAUDE.md from project
             allowed_tools=["Skill", "Read", "Grep", "Glob", "Bash", "WebFetch", "WebSearch"],
             resume=request.session_id,  # None for new, sessionId for resume
-            max_buffer_size=10 * 1024 * 1024  # 10MB 缓冲区
+            max_buffer_size=10 * 1024 * 1024,  # 10MB buffer
+            cwd=str(CONTEXT_DIR),  # Set working directory to public data
+            add_dirs=[str(tenant_dir)] if tenant_dir.exists() else []  # Add tenant directory dynamically
         )
+
+        logger.info(f"Tenant isolation: cwd={CONTEXT_DIR}, add_dirs={[str(tenant_dir)] if tenant_dir.exists() else []}")
 
         logger.info("Creating ClaudeSDKClient...")
         

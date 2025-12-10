@@ -50,7 +50,7 @@ DB_CONFIG = {
 # 输出目录配置
 SCRIPT_DIR = Path(__file__).resolve().parent
 PROJECT_ROOT = SCRIPT_DIR.parent
-OUTPUT_BASE_DIR = os.getenv('OUTPUT_DIR', str(PROJECT_ROOT / 'context' / 'invoices'))
+OUTPUT_BASE_DIR = os.getenv('OUTPUT_DIR', str(PROJECT_ROOT / 'tenant-data'))
 
 # 增量导出配置
 TIME_BUFFER_SECONDS = 300  # 5分钟安全边界，避免捕获正在进行的事务
@@ -394,9 +394,10 @@ class InvoiceExporter:
             logger.info(f"[DRY RUN] 将写入 {len(invoices)} 个文件到 {tenant_id}/{country}/")
             return len(invoices)
 
-        # 创建目录结构
+        # 创建目录结构: tenant-data/{tenant_id}/invoices/{country}/
         tenant_dir = self.output_dir / tenant_id
-        country_dir = tenant_dir / country
+        invoices_dir = tenant_dir / "invoices"
+        country_dir = invoices_dir / country
         country_dir.mkdir(parents=True, exist_ok=True)
 
         successful_count = 0
