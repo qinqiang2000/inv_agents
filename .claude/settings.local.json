@@ -43,7 +43,9 @@
       "Bash(grep:*)",
       "Bash(du:*)",
       "Bash(done)",
-      "Bash(pip3 list:*)"
+      "Bash(pip3 list:*)",
+      "Bash(EXPORT_MODE=incremental python3:*)",
+      "Bash(ssh:*)"
     ],
     "deny": [],
     "ask": []
