@@ -45,7 +45,14 @@
       "Bash(done)",
       "Bash(pip3 list:*)",
       "Bash(EXPORT_MODE=incremental python3:*)",
-      "Bash(ssh:*)"
+      "Bash(ssh:*)",
+      "Bash(for tenant in /Users/qinqiang02/colab/codespace/ai/invoice_engine_3rd/agents/tenant-data/*/invoices/*/)",
+      "Bash(for tenant in 1 10 89 91 92)",
+      "Bash(do)",
+      "Bash(path=\"/Users/qinqiang02/colab/codespace/ai/invoice_engine_3rd/agents/tenant-data/$tenant/invoices\")",
+      "Bash(if [ -d \"$path\" ])",
+      "Bash(then)",
+      "Bash(fi)"
     ],
     "deny": [],
     "ask": []

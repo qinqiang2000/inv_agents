@@ -1,6 +1,6 @@
 # Context data
 context/
-tenant-data/
+data/
 
 # Python
 .venv/
