@@ -10,15 +10,15 @@ description: 通过分析历史发票数据和主数据为 UBL 发票提供智�
 该技能通过分析历史成功开票记录和主数据，为 UBL 2.1 发票生成提供智能字段值推荐。
 
 **目录结构说明**：
-- 公共数据（basic-data）在当前工作目录 `./basic-data/`
-- 租户数据在 `../tenant-data/{tenant_id}/` 目录下
+- 公共数据在 `./data/basic-data/`
+- 租户数据在 `./data/tenants/{tenant_id}/` 目录下
 
 ## 何时使用此技能
 
 当用户提供以下信息时使用此技能：
 - **租户 ID**（例如 `1`、`10`、`89`）
 - **目标字段名称**（例如 `unitCode`、`TaxCategory`、`PaymentMeans`）
-- **发票文件路径** - `../tenant-data/{tenantId}/pending-invoices/` 中待处理发票文件的路径
+- **发票文件路径** - `./data/tenants/{tenantId}/pending-invoices/` 中待处理发票文件的路径
 
 ## 输入参数
 
@@ -28,35 +28,35 @@ description: 通过分析历史发票数据和主数据为 UBL 发票提供智�
 |------|------|------|------|
 | `tenantId` | String | 租户标识符（数字） | `"1"`、`"10"`、`"89"` |
 | `targetField` | String | 要推荐的 UBL 字段名称 | `"unitCode"`、`"TaxCategory"`、`"PaymentMeans"` |
-| `invoiceFilePath` | String | 待处理发票文件的路径 | `"../tenant-data/1/pending-invoices/order-2024-001.xml"` |
+| `invoiceFilePath` | String | 待处理发票文件的路径 | `"./data/tenants/1/pending-invoices/order-2024-001.xml"` |
 
 ### 输入验证
 
 在开始推荐工作流之前，验证所有必需的输入：
 1. **检查 tenantId**：必须存在、非空且为数字字符串
 2. **检查 targetField**：必须存在、非空且为公认的 UBL 字段名称
-3. **检查 invoiceFilePath**：必须存在、以 `../tenant-data/{tenantId}/pending-invoices/` 开头，且文件必须存在
+3. **检查 invoiceFilePath**：必须存在、以 `./data/tenants/{tenantId}/pending-invoices/` 开头，且文件必须存在
 
 ## 安全性和租户隔离
 
 ### 关键安全规则
 
 1. **租户 ID 是强制性的** - 每个请求都必须包含有效的 tenantId
-2. **待处理发票访问限制** - 仅从 `../tenant-data/{tenantId}/pending-invoices/` 读取
-3. **历史发票搜索限制** - 仅在 `../tenant-data/{tenantId}/invoices/{countryCode}/` 内搜索
+2. **待处理发票访问限制** - 仅从 `./data/tenants/{tenantId}/pending-invoices/` 读取
+3. **历史发票搜索限制** - 仅在 `./data/tenants/{tenantId}/invoices/{countryCode}/` 内搜索
 4. **路径验证** - 拒绝尝试访问其他租户目录的路径
-5. **基础数据访问** - `./basic-data/` 在所有租户间共享
+5. **基础数据访问** - `./data/basic-data/` 在所有租户间共享
 
 ### 路径验证示例
 
 ```python
 # 读取待处理发票文件之前：
-expected_pending_prefix = f"../tenant-data/{tenant_id}/pending-invoices/"
+expected_pending_prefix = f"./data/tenants/{tenant_id}/pending-invoices/"
 if not invoice_file_path.startswith(expected_pending_prefix):
     raise SecurityError("ACCESS_DENIED: 跨租户待处理发票访问被阻止")
 
 # 读取历史发票文件之前：
-expected_history_prefix = f"../tenant-data/{tenant_id}/invoices/"
+expected_history_prefix = f"./data/tenants/{tenant_id}/invoices/"
 if not file_path.startswith(expected_history_prefix):
     raise SecurityError("ACCESS_DENIED: 跨租户访问被阻止")
 ```
@@ -108,7 +108,7 @@ if not file_path.startswith(expected_history_prefix):
 
 ### 步骤 1：搜索历史发票
 
-1. **定位发票目录**：`../tenant-data/{tenant_id}/invoices/{country_code}/`
+1. **定位发票目录**：`./data/tenants/{tenant_id}/invoices/{country_code}/`
 2. **安全性检查**：确保仅在租户目录内搜索
 3. **使用上下文相似性搜索语义相似的发票**
 4. **记录匹配结果和置信度**
@@ -150,12 +150,12 @@ if not file_path.startswith(expected_history_prefix):
 
 | 目标字段 | 数据文件路径 |
 |---------|------------|
-| `unitCode` | `./basic-data/codes/uom-codes/{country}.json` |
-| `TaxCategory` | `./basic-data/codes/tax-category-codes/{country}.json` |
-| `PaymentMeans` | `./basic-data/codes/payment-means/{country}.json` |
-| `AllowanceChargeReason` | `./basic-data/codes/allowance-reason-codes/{country}.json` |
-| `ChargeCode` | `./basic-data/codes/charge-codes/{country}.json` |
-| `TaxExemptionReason` | `./basic-data/codes/tax-exemption-reason-codes/{country}.json` |
+| `unitCode` | `./data/basic-data/codes/uom-codes/{country}.json` |
+| `TaxCategory` | `./data/basic-data/codes/tax-category-codes/{country}.json` |
+| `PaymentMeans` | `./data/basic-data/codes/payment-means/{country}.json` |
+| `AllowanceChargeReason` | `./data/basic-data/codes/allowance-reason-codes/{country}.json` |
+| `ChargeCode` | `./data/basic-data/codes/charge-codes/{country}.json` |
+| `TaxExemptionReason` | `./data/basic-data/codes/tax-exemption-reason-codes/{country}.json` |
 
 2. **检查文件是否存在**
 3. **如果存在**：加载候选值，执行语义匹配，选择最佳匹配
@@ -197,8 +197,8 @@ if not file_path.startswith(expected_history_prefix):
 **仅当检查点 2 决策为"继续"时执行**
 
 1. **读取全局数据文件**：
-   - `./basic-data/global/*.json`
-   - `./basic-data/codes/*/global.json`
+   - `./data/basic-data/global/*.json`
+   - `./data/basic-data/codes/*/global.json`
 2. **使用相同的语义匹配策略**
 3. **记录匹配结果**
 
@@ -245,28 +245,32 @@ if not file_path.startswith(expected_history_prefix):
 
 ## 数据目录结构
 
-**公共数据（当前工作目录 cwd）**：
-```
-./                              # 工作目录 = agents/context/
-└── basic-data/                 # 共享基础数据（无租户隔离）
-    ├── global/
-    │   ├── currencies.json
-    │   └── invoice-types.json
-    └── codes/
-        ├── uom-codes/{country}.json
-        ├── tax-category-codes/{country}.json
-        ├── payment-means/{country}.json
-        └── ...
-```
+**工作目录 cwd = agents/**
 
-**租户数据（通过 add_dirs 授权访问）**：
 ```
-../tenant-data/{tenant_id}/     # 租户隔离目录
-├── invoices/                   # 历史发票
-│   └── {country_code}/
-│       └── {date}+{invoice_number}.json
-└── pending-invoices/           # 待处理发票
-    └── {invoice_filename}.xml|.json
+./                              # 工作目录 = agents/
+├── .claude/
+│   └── skills/                 # 技能定义（自动加载）
+│       └── invoice-field-recommender/
+│           └── SKILL.md
+│
+└── data/                       # 统一数据目录
+    ├── basic-data/             # 共享基础数据（所有租户可访问）
+    │   ├── global/
+    │   │   ├── currencies.json
+    │   │   └── invoice-types.json
+    │   └── codes/
+    │       ├── uom-codes/{country}.json
+    │       ├── tax-category-codes/{country}.json
+    │       ├── payment-means/{country}.json
+    │       └── ...
+    │
+    └── tenants/{tenant_id}/    # 租户隔离目录
+        ├── invoices/           # 历史发票
+        │   └── {country_code}/
+        │       └── {date}+{invoice_number}.json
+        └── pending-invoices/   # 待处理发票
+            └── {invoice_filename}.xml|.json
 ```
 
 ---

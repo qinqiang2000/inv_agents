@@ -50,7 +50,7 @@ DB_CONFIG = {
 # 输出目录配置
 SCRIPT_DIR = Path(__file__).resolve().parent
 PROJECT_ROOT = SCRIPT_DIR.parent
-OUTPUT_BASE_DIR = os.getenv('OUTPUT_DIR', str(PROJECT_ROOT / 'tenant-data'))
+OUTPUT_BASE_DIR = os.getenv('OUTPUT_DIR', str(PROJECT_ROOT / 'data' / 'tenants'))
 
 # 增量导出配置
 TIME_BUFFER_SECONDS = 300  # 5分钟安全边界，避免捕获正在进行的事务

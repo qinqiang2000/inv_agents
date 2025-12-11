@@ -37,7 +37,7 @@ DB_CONFIG = {
 # 获取脚本所在目录的绝对路径，然后构建输出目录
 SCRIPT_DIR = Path(__file__).resolve().parent
 PROJECT_ROOT = SCRIPT_DIR.parent
-OUTPUT_BASE_DIR = os.getenv('OUTPUT_DIR', str(PROJECT_ROOT / 'context' / 'basic-data'))
+OUTPUT_BASE_DIR = os.getenv('OUTPUT_DIR', str(PROJECT_ROOT / 'data' / 'basic-data'))
 
 # 代码类型映射
 CODE_TYPES = {

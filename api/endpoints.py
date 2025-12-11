@@ -18,7 +18,7 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api", tags=["agent"])
 
 # Base directory for storing pending invoices (tenant-isolated)
-TENANT_DATA_DIR = "tenant-data"
+TENANT_DATA_DIR = "data/tenants"
 
 
 def save_invoice_context(tenant_id: str, country_code: str, context: str) -> str:

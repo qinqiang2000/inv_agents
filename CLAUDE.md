@@ -21,10 +21,10 @@ This is a **Claude Agent SDK-powered REST API** service for providing intelligen
    - Skills define specialized workflows for invoice field recommendations
    - Skills loaded via Claude SDK's Skill tool
 
-3. **Context Data Layer** (tenant-isolated)
-   - `context/basic-data/`: Master data (currencies, tax codes, payment means, etc.) - shared across tenants
-   - `tenant-data/{tenant_id}/invoices/{country_code}/`: Historical successful invoices (UBL 2.1 JSON)
-   - `tenant-data/{tenant_id}/pending-invoices/`: Draft invoices awaiting field recommendations
+3. **Context Data Layer** (unified data directory)
+   - `data/basic-data/`: Master data (currencies, tax codes, payment means, etc.) - shared across tenants
+   - `data/tenants/{tenant_id}/invoices/{country_code}/`: Historical successful invoices (UBL 2.1 JSON)
+   - `data/tenants/{tenant_id}/pending-invoices/`: Draft invoices awaiting field recommendations
 
 ### Request Flow
 
@@ -67,8 +67,8 @@ uvicorn app:app --host 0.0.0.0 --port 8000 --reload
 **Critical**: Service MUST run in `/Users/qinqiang02/colab/codespace/ai/invoice_engine_3rd/agents` directory because:
 - Claude SDK loads `CLAUDE.md` from current working directory
 - Skills are resolved relative to `.claude/skills/`
-- Claude SDK `cwd` is set to `./context/` for public data access
-- Tenant data is accessed via `add_dirs` pointing to `./tenant-data/{tenant_id}/`
+- Claude SDK `cwd` is set to `agents/` root for skill loading and data access
+- All data is under `./data/` directory (basic-data and tenants)
 
 ### Testing
 
@@ -154,31 +154,38 @@ LOG_LEVEL=INFO  # DEBUG, INFO, WARNING, ERROR
 ```
 ## Data Directory Structure
 
-**Tenant Isolation Architecture**:
-- `context/` - Public data directory (Claude SDK `cwd`)
-- `tenant-data/` - Tenant-specific data (accessed via Claude SDK `add_dirs`)
+**Unified Data Architecture**:
+- `data/` - Single data directory containing all data (relative to cwd = agents/)
+- `data/basic-data/` - Shared master data (accessible by all tenants)
+- `data/tenants/` - Tenant-specific data (isolated via prompt constraints)
 
 ```
-agents/
-├── context/                       # Public data (cwd for Claude SDK)
-│   └── basic-data/                # Shared master data
-│       ├── global/
-│       │   ├── currencies.json
-│       │   └── invoice-types.json
-│       └── codes/
-│           ├── uom-codes/{country}.json
-│           ├── tax-category-codes/{country}.json
-│           └── payment-means/{country}.json
+agents/                            # cwd (Claude SDK working directory)
+├── CLAUDE.md
+├── .claude/
+│   └── skills/                    # Skills auto-loaded from cwd/.claude/skills/
+│       └── invoice-field-recommender/
+│           └── SKILL.md
 │
-└── tenant-data/                   # Tenant data (isolated via add_dirs)
-    ├── {tenant_id}/               # Tenant-specific directory
-    │   ├── invoices/              # Historical invoices
-    │   │   └── {country_code}/
-    │   │       └── {date}+{invoice_number}.json
-    │   └── pending-invoices/      # Draft invoices
-    │       └── draft_{country}_{timestamp}.xml
-    └── .export_state/             # Export state management
-        └── .last_export_time
+└── data/                          # Unified data directory
+    ├── basic-data/                # Shared master data
+    │   ├── global/
+    │   │   ├── currencies.json
+    │   │   └── invoice-types.json
+    │   └── codes/
+    │       ├── uom-codes/{country}.json
+    │       ├── tax-category-codes/{country}.json
+    │       └── payment-means/{country}.json
+    │
+    └── tenants/                   # Tenant data (isolated via prompt constraints)
+        ├── {tenant_id}/           # Tenant-specific directory
+        │   ├── invoices/          # Historical invoices
+        │   │   └── {country_code}/
+        │   │       └── {date}+{invoice_number}.json
+        │   └── pending-invoices/  # Draft invoices
+        │       └── draft_{country}_{timestamp}.xml
+        └── .export_state/         # Export state management
+            └── .last_export_time
 ```
 
 ## Production Deployment Considerations

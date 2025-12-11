@@ -358,7 +358,7 @@ python3 export_basic_data.py
 
 **输出目录**:
 ```
-context/
+data/
 └── basic-data/
     ├── global/
     │   ├── currencies.json         # 货币数据
@@ -370,7 +370,7 @@ context/
 ```
 
 **环境变量**:
-- `OUTPUT_DIR`: 指定输出目录（默认：../context/basic-data）
+- `OUTPUT_DIR`: 指定输出目录（默认：../data/basic-data）
 - `DB_HOST`, `DB_PORT`, `DB_USER`, `DB_PASSWORD`, `DB_NAME`: 数据库连接配置
 
 ## 版本历史
