@@ -23,6 +23,7 @@ import gzip
 import shutil
 from tqdm import tqdm
 import fcntl
+from dotenv import load_dotenv
 
 # 配置日志
 logging.basicConfig(
@@ -31,6 +32,16 @@ logging.basicConfig(
     datefmt='%Y-%m-%d %H:%M:%S'
 )
 logger = logging.getLogger(__name__)
+
+# 加载环境变量
+SCRIPT_DIR = Path(__file__).resolve().parent
+PROJECT_ROOT = SCRIPT_DIR.parent
+ENV_FILE = PROJECT_ROOT / '.env.prod'
+if ENV_FILE.exists():
+    load_dotenv(ENV_FILE)
+    logger.info(f"已加载环境配置: {ENV_FILE}")
+else:
+    logger.warning(f"未找到环境配置文件: {ENV_FILE}，将使用默认配置")
 
 # 数据库配置
 DB_CONFIG = {
@@ -48,8 +59,6 @@ DB_CONFIG = {
 }
 
 # 输出目录配置
-SCRIPT_DIR = Path(__file__).resolve().parent
-PROJECT_ROOT = SCRIPT_DIR.parent
 OUTPUT_BASE_DIR = os.getenv('OUTPUT_DIR', str(PROJECT_ROOT / 'data' / 'tenants'))
 
 # 增量导出配置
